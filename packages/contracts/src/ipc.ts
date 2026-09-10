@@ -1302,6 +1302,24 @@ export interface DesktopBridge {
    */
   openSystemSettings?: (pane: SystemSettingsPane) => Promise<boolean>;
   /**
+   * Show a native OS notification. Resolves false when the OS refuses.
+   * Optional: older desktop builds lack it, so callers must feature-detect.
+   */
+  showNotification?: (input: {
+    title: string;
+    body: string;
+    silent: boolean;
+    environmentId: string;
+    threadId: string;
+  }) => Promise<boolean>;
+  /**
+   * Notification clicks, so the renderer can route to the originating thread.
+   * Optional: older desktop builds never emit them. Returns an unsubscribe.
+   */
+  onNotificationActivated?: (
+    listener: (target: { environmentId: string; threadId: string }) => void,
+  ) => () => void;
+  /**
    * Probe this desktop machine for installed remote-capable editor CLIs
    * (used for remote open-in-editor deep links). Optional: older desktop
    * builds lack it; callers fall back to VS Code only.

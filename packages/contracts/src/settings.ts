@@ -48,6 +48,35 @@ export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_a
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
 
+/**
+ * Per-device notification preferences. Deliberately client-scoped: whether a
+ * given machine makes noise is a property of that machine, not of the account.
+ */
+export const NotificationSettingsSchema = Schema.Struct({
+  enabled: Schema.Boolean,
+  /** A turn finished and the agent is waiting on you. */
+  turnComplete: Schema.Boolean,
+  /** A tool call is blocked on your permission. */
+  approvalRequired: Schema.Boolean,
+  /** The agent asked a question and is waiting on input. */
+  inputRequested: Schema.Boolean,
+  /** The turn ended in an error. */
+  turnFailed: Schema.Boolean,
+  sound: Schema.Boolean,
+});
+export type NotificationSettings = typeof NotificationSettingsSchema.Type;
+
+export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  // Off until the user opts in: an app that starts notifying unprompted after
+  // an update is a bug report, not a feature.
+  enabled: false,
+  turnComplete: true,
+  approvalRequired: true,
+  inputRequested: true,
+  turnFailed: true,
+  sound: true,
+};
+
 export const SidebarThreadSortOrder = Schema.Literals([
   // The active list's arranged order (see thread.active.reorder). It carries
   // no timestamp, so surfaces that cannot honour an arrangement — the command
@@ -443,6 +472,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
+  ),
+  notifications: NotificationSettingsSchema.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_NOTIFICATION_SETTINGS)),
   ),
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
@@ -1380,6 +1412,7 @@ export const ClientSettingsPatch = Schema.Struct({
   ),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
+  notifications: Schema.optionalKey(NotificationSettingsSchema),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   snapShotEnabled: Schema.optionalKey(Schema.Boolean),

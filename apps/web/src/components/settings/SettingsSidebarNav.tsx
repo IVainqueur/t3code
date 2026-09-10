@@ -11,6 +11,7 @@ import {
 } from "react";
 import {
   ArchiveIcon,
+  BellIcon,
   BlocksIcon,
   BotIcon,
   createLucideIcon,
@@ -76,6 +77,7 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/general": Settings2Icon,
   "/settings/appearance": PaletteIcon,
   "/settings/projects": PanelsTopLeftIcon,
+  "/settings/notifications": BellIcon,
   "/settings/keybindings": KeyboardIcon,
   "/settings/snap-shot": SnapShotIcon,
   "/settings/providers": BotIcon,

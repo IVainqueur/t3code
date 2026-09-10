@@ -5,6 +5,9 @@ export const SET_THEME_CHANNEL = "desktop:set-theme";
 export const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 export const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 export const OPEN_SYSTEM_SETTINGS_CHANNEL = "desktop:open-system-settings";
+export const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
+/** Main -> renderer: the user clicked a notification. */
+export const NOTIFICATION_ACTIVATED_CHANNEL = "desktop:notification-activated";
 export const PROBE_REMOTE_EDITORS_CHANNEL = "desktop:probe-remote-editors";
 export const MENU_ACTION_CHANNEL = "desktop:menu-action";
 export const SNAP_SHOT_EVENT_CHANNEL = "desktop:snap-shot-event";

@@ -154,6 +154,28 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   openExternal: (url: string) => ipcRenderer.invoke(IpcChannels.OPEN_EXTERNAL_CHANNEL, url),
   openSystemSettings: (pane: string) =>
     ipcRenderer.invoke(IpcChannels.OPEN_SYSTEM_SETTINGS_CHANNEL, pane),
+  showNotification: (input: {
+    title: string;
+    body: string;
+    silent: boolean;
+    environmentId: string;
+    threadId: string;
+  }) => ipcRenderer.invoke(IpcChannels.SHOW_NOTIFICATION_CHANNEL, input),
+  onNotificationActivated: (
+    listener: (target: { environmentId: string; threadId: string }) => void,
+  ) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, target: unknown) => {
+      if (typeof target !== "object" || target === null) return;
+      const { environmentId, threadId } = target as Record<string, unknown>;
+      if (typeof environmentId !== "string" || typeof threadId !== "string") return;
+      listener({ environmentId, threadId });
+    };
+
+    ipcRenderer.on(IpcChannels.NOTIFICATION_ACTIVATED_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.NOTIFICATION_ACTIVATED_CHANNEL, wrappedListener);
+    };
+  },
   probeRemoteEditors: () => ipcRenderer.invoke(IpcChannels.PROBE_REMOTE_EDITORS_CHANNEL, undefined),
   onMenuAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {

@@ -5,6 +5,7 @@ export type SettingsPath =
   | "/settings/projects"
   | "/settings/general"
   | "/settings/appearance"
+  | "/settings/notifications"
   | "/settings/keybindings"
   | "/settings/snap-shot"
   | "/settings/providers"
@@ -52,6 +53,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
   "/settings/appearance": "Appearance",
   "/settings/projects": "Projects",
+  "/settings/notifications": "Notifications",
   "/settings/keybindings": "Keybindings",
   "/settings/snap-shot": "SnapShots",
   "/settings/providers": "Providers",
@@ -172,6 +174,21 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "thread-sorting",
     title: "Thread sorting",
     to: "/settings/general",
+  },
+  {
+    id: "notifications-enabled",
+    title: "System notifications",
+    to: "/settings/notifications",
+  },
+  {
+    id: "notification-events",
+    title: "Notify me about",
+    to: "/settings/notifications",
+  },
+  {
+    id: "notification-sound",
+    title: "Notification sound",
+    to: "/settings/notifications",
   },
   {
     id: "auto-settle-inactive-threads",
