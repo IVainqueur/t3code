@@ -45,6 +45,7 @@ export const THREAD_SORT_OPTIONS: ReadonlyArray<{
 }> = [
   { value: "updated_at", label: "Last user message" },
   { value: "created_at", label: "Created at" },
+  { value: "last_activity", label: "Last activity" },
 ];
 
 function defaultHomeListOptions(): HomeListOptions {

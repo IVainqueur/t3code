@@ -224,8 +224,10 @@ const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   manual: "Manual",
 };
 const SIDEBAR_THREAD_SORT_LABELS: Record<SidebarThreadSortOrder, string> = {
+  manual: "Manual",
   updated_at: "Last user message",
   created_at: "Created at",
+  last_activity: "Last activity",
 };
 const SIDEBAR_LIST_ANIMATION_OPTIONS = {
   duration: 180,

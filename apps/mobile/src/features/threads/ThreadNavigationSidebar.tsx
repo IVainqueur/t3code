@@ -541,6 +541,7 @@ function ThreadNavigationSidebarPane(
       snoozedShelfExpanded,
       settledShelfExpanded,
       selectedThreadKey: props.selectedThreadKey ?? null,
+      threadSortOrder: options.threadSortOrder,
     });
   }, [
     pendingOrder,

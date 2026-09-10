@@ -20,6 +20,28 @@ on Windows and Linux to start a new thread and immediately open another draft. T
 next draft keeps the workspace mode and base branch you selected. With **New
 worktree**, each background submission creates its own worktree.
 
+## Sorting threads
+
+Choose how the sidebar orders active threads in Settings under General, with
+**Thread sorting**:
+
+- **Manual** — the arrangement you set by dragging. New and reopened threads
+  lead the list; everything else keeps the position you gave it. This is the
+  default, and the only mode where dragging threads is available.
+- **Last user message** — a thread moves up when you write in it. Work the
+  agent does on its own does not move anything, so the list stays still while
+  threads run in the background.
+- **Last activity** — a thread moves up on any new message, including the
+  agent's. Best when you are juggling several running threads and want the most
+  recently changed one on top.
+- **Created at** — oldest arrangement rules: threads sit in the order they were
+  created and never move.
+
+The three time-based modes ignore any manual arrangement while they are
+selected; switching back to **Manual** restores it. Pinned threads keep their
+own order above the list, and snoozed and settled threads keep their own
+ordering regardless of this setting.
+
 ## Pin and reorder threads
 
 Pin a thread from its menu to keep it above your active work.

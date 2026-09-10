@@ -48,9 +48,22 @@ export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_a
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
 
-export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
+export const SidebarThreadSortOrder = Schema.Literals([
+  // The active list's arranged order (see thread.active.reorder). It carries
+  // no timestamp, so surfaces that cannot honour an arrangement — the command
+  // palette, the legacy sidebar — read it as "updated_at".
+  "manual",
+  // "updated_at" is a legacy value name that has always meant "latest user
+  // message" (see getThreadSortTimestamp). Kept as-is so persisted settings
+  // and the mobile picker, which already labels it that way, stay valid.
+  "updated_at",
+  "created_at",
+  "last_activity",
+]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
-export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+// Defaults to the manual arrangement so the active list keeps the order the
+// user dragged it into; the time-based modes are opt-in.
+export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "manual";
 
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",

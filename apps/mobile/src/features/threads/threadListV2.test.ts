@@ -310,6 +310,74 @@ describe("resolveThreadListV2SnoozeGateExpiryMs", () => {
   });
 });
 
+describe("sortThreadsForListV2 sort order", () => {
+  const activityThread = (input: {
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+    latestUserMessageAt: string | null;
+    messages?: ReadonlyArray<{ createdAt: string; role: string }>;
+  }) => ({
+    id: input.id,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+    latestUserMessageAt: input.latestUserMessageAt,
+    messages: input.messages ?? [],
+  });
+
+  it("orders by latest user message when the sort order is updated_at", () => {
+    const sorted = sortThreadsForListV2(
+      [
+        activityThread({
+          id: "created-newest",
+          createdAt: "2026-03-09T12:00:00.000Z",
+          updatedAt: "2026-03-09T12:00:00.000Z",
+          latestUserMessageAt: "2026-03-09T12:00:00.000Z",
+        }),
+        activityThread({
+          id: "spoken-to-most-recently",
+          createdAt: "2026-03-09T08:00:00.000Z",
+          updatedAt: "2026-03-09T13:00:00.000Z",
+          latestUserMessageAt: "2026-03-09T13:00:00.000Z",
+        }),
+      ],
+      "updated_at",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual([
+      "spoken-to-most-recently",
+      "created-newest",
+    ]);
+  });
+
+  it("floats a thread the agent just replied in when the sort order is last_activity", () => {
+    const sorted = sortThreadsForListV2(
+      [
+        activityThread({
+          id: "user-asked-later",
+          createdAt: "2026-03-09T09:00:00.000Z",
+          updatedAt: "2026-03-09T10:15:00.000Z",
+          latestUserMessageAt: "2026-03-09T10:15:00.000Z",
+          messages: [{ createdAt: "2026-03-09T10:15:00.000Z", role: "user" }],
+        }),
+        activityThread({
+          id: "agent-replied-last",
+          createdAt: "2026-03-09T08:00:00.000Z",
+          updatedAt: "2026-03-09T10:30:00.000Z",
+          latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+          messages: [
+            { createdAt: "2026-03-09T10:00:00.000Z", role: "user" },
+            { createdAt: "2026-03-09T10:30:00.000Z", role: "assistant" },
+          ],
+        }),
+      ],
+      "last_activity",
+    );
+
+    expect(sorted.map((thread) => thread.id)).toEqual(["agent-replied-last", "user-asked-later"]);
+  });
+});
+
 describe("sortThreadsForListV2", () => {
   it("honors a saved active order and leaves new threads above it", () => {
     const sorted = sortThreadsForListV2([

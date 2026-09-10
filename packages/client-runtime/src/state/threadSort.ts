@@ -87,6 +87,31 @@ function getLatestUserMessageTimestamp(thread: ThreadSortInput): number {
   return getFirstSortableTimestamp(thread.updatedAt, thread.createdAt) ?? Number.NEGATIVE_INFINITY;
 }
 
+function getLatestActivityTimestamp(thread: ThreadSortInput): number {
+  let latest = Number.NEGATIVE_INFINITY;
+
+  for (const message of thread.messages ?? []) {
+    const messageTimestamp = toSortableTimestamp(message.createdAt);
+    if (messageTimestamp !== null && messageTimestamp > latest) {
+      latest = messageTimestamp;
+    }
+  }
+
+  const latestUserMessageTimestamp = toSortableTimestamp(thread.latestUserMessageAt ?? undefined);
+  if (latestUserMessageTimestamp !== null && latestUserMessageTimestamp > latest) {
+    latest = latestUserMessageTimestamp;
+  }
+
+  // updatedAt is the server's stamp for any turn activity, so it carries agent
+  // work that never lands in `messages`.
+  const updatedTimestamp = getFirstSortableTimestamp(thread.updatedAt, thread.createdAt);
+  if (updatedTimestamp !== null && updatedTimestamp > latest) {
+    latest = updatedTimestamp;
+  }
+
+  return latest;
+}
+
 export function getThreadSortTimestamp(
   thread: ThreadSortInput,
   sortOrder: SidebarThreadSortOrder | Exclude<SidebarProjectSortOrder, "manual">,
@@ -96,6 +121,11 @@ export function getThreadSortTimestamp(
       getFirstSortableTimestamp(thread.createdAt, thread.updatedAt) ?? Number.NEGATIVE_INFINITY
     );
   }
+  if (sortOrder === "last_activity") {
+    return getLatestActivityTimestamp(thread);
+  }
+  // "manual" has no timestamp of its own. Surfaces that cannot honour a manual
+  // arrangement fall through to recency, which is what "updated_at" means.
   return getLatestUserMessageTimestamp(thread);
 }
 
@@ -323,8 +353,35 @@ export function sortActiveThreadsByOrderKey<
     readonly unsettledAt?: string | null | undefined;
     readonly activeOrderKey?: string | null | undefined;
     readonly environmentId?: string | undefined;
+    readonly updatedAt?: string | undefined;
+    readonly latestUserMessageAt?: string | null | undefined;
+    readonly messages?: ReadonlyArray<{ readonly createdAt: string; readonly role: string }>;
   },
->(threads: readonly T[]): T[] {
+>(threads: readonly T[], sortOrder: SidebarThreadSortOrder = "manual"): T[] {
+  if (sortOrder !== "manual") {
+    // Time-based modes ignore activeOrderKey outright rather than blending it
+    // in. The keys are fractional positions, so a partial blend would order
+    // differently depending on which threads happen to be arranged — and a
+    // server without threadActiveReorder produces none at all, which would
+    // make the same data render differently across a mixed-version fleet.
+    const anchorOf = (thread: T) =>
+      getThreadSortTimestamp(
+        {
+          createdAt: thread.createdAt,
+          updatedAt: thread.updatedAt ?? thread.createdAt,
+          latestUserMessageAt: thread.latestUserMessageAt ?? null,
+          messages: thread.messages ?? [],
+        },
+        sortOrder,
+      );
+    return [...threads].sort(
+      (left, right) =>
+        anchorOf(right) - anchorOf(left) ||
+        left.id.localeCompare(right.id) ||
+        (left.environmentId ?? "").localeCompare(right.environmentId ?? ""),
+    );
+  }
+
   return [...threads].sort((left, right) => {
     const leftKey = left.activeOrderKey;
     const rightKey = right.activeOrderKey;

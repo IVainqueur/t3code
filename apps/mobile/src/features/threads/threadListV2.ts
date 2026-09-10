@@ -15,6 +15,7 @@ import {
   sortPinnedThreadsByOrderKey,
 } from "@t3tools/client-runtime/state/thread-sort";
 import type { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 
 import type { PendingNewTask } from "../../state/use-pending-new-tasks";
 
@@ -157,8 +158,9 @@ function parseTimestampMs(isoDate: string): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** The active order shared by web and native: new/reopened rows, then the
-    saved arrangement. Activity does not move a thread. */
+/** The active order shared by web and native. Under "manual": new/reopened
+    rows, then the saved arrangement, and activity does not move a thread. The
+    time-based modes sort by their own stamp and ignore the arrangement. */
 export function sortThreadsForListV2<
   T extends {
     readonly id: string;
@@ -166,9 +168,12 @@ export function sortThreadsForListV2<
     readonly unsettledAt?: string | null | undefined;
     readonly activeOrderKey?: string | null | undefined;
     readonly environmentId?: string | undefined;
+    readonly updatedAt?: string | undefined;
+    readonly latestUserMessageAt?: string | null | undefined;
+    readonly messages?: ReadonlyArray<{ readonly createdAt: string; readonly role: string }>;
   },
->(threads: readonly T[]): T[] {
-  return sortActiveThreadsByOrderKey(threads);
+>(threads: readonly T[], sortOrder: SidebarThreadSortOrder = "manual"): T[] {
+  return sortActiveThreadsByOrderKey(threads, sortOrder);
 }
 
 /** Canonical card section for Move up/down, independent of search or scope. */
@@ -339,6 +344,9 @@ export function buildThreadListV2ListItems(input: {
  */
 export function buildThreadListV2Items(input: {
   readonly pendingOrder?: PendingThreadOrder | null;
+  /** Active-list sort mode. Defaults to the saved arrangement so callers that
+      have not wired the setting keep today's order. */
+  readonly threadSortOrder?: SidebarThreadSortOrder;
   readonly threads: ReadonlyArray<EnvironmentThreadShell>;
   readonly environmentId: EnvironmentId | null;
   readonly projectRefs?: ReadonlyArray<{
@@ -438,7 +446,11 @@ export function buildThreadListV2Items(input: {
     }
   }
 
-  const orderedActive = applyPendingThreadOrder(sortThreadsForListV2(active), "active", pending);
+  const orderedActive = applyPendingThreadOrder(
+    sortThreadsForListV2(active, input.threadSortOrder ?? "manual"),
+    "active",
+    pending,
+  );
   const orderedSnoozed = [...snoozed].sort(
     (left, right) =>
       parseTimestampMs(left.snoozedUntil ?? "") - parseTimestampMs(right.snoozedUntil ?? ""),

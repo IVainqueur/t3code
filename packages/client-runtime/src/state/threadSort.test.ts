@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   generateSpreadPinOrderKeys,
   pinOrderKeyBetween,
+  getThreadSortTimestamp,
   planPinnedMove,
   planPinnedReorder,
   resolveSettledThreadTimestamp,
@@ -347,5 +348,153 @@ describe("sortActiveThreadsByOrderKey", () => {
     const keys = new Map(assignments.map((assignment) => [assignment.id, assignment.orderKey]));
     const updated = threads.map((thread) => ({ ...thread, activeOrderKey: keys.get(thread.id) }));
     expect(sortActiveThreadsByOrderKey(updated).map((thread) => thread.id)).toEqual(orderedIds);
+  });
+});
+
+describe("sortActiveThreadsByOrderKey sort modes", () => {
+  const row = (input: {
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+    latestUserMessageAt: string | null;
+    activeOrderKey?: string | null;
+    messages?: ReadonlyArray<{ createdAt: string; role: string }>;
+  }) => ({
+    id: input.id,
+    createdAt: input.createdAt,
+    updatedAt: input.updatedAt,
+    latestUserMessageAt: input.latestUserMessageAt,
+    activeOrderKey: input.activeOrderKey ?? null,
+    messages: input.messages ?? [],
+  });
+
+  const arrangedOldest = row({
+    id: "arranged-first",
+    createdAt: "2026-03-09T08:00:00.000Z",
+    updatedAt: "2026-03-09T08:00:00.000Z",
+    latestUserMessageAt: "2026-03-09T08:00:00.000Z",
+    activeOrderKey: "f",
+  });
+  const arrangedNewest = row({
+    id: "arranged-second",
+    createdAt: "2026-03-09T09:00:00.000Z",
+    updatedAt: "2026-03-09T12:00:00.000Z",
+    latestUserMessageAt: "2026-03-09T12:00:00.000Z",
+    activeOrderKey: "t",
+  });
+
+  it("defaults to the saved arrangement, which activity does not disturb", () => {
+    expect(
+      sortActiveThreadsByOrderKey([arrangedNewest, arrangedOldest]).map((thread) => thread.id),
+    ).toEqual(["arranged-first", "arranged-second"]);
+  });
+
+  it("ignores the arrangement under a time-based mode", () => {
+    expect(
+      sortActiveThreadsByOrderKey([arrangedOldest, arrangedNewest], "updated_at").map(
+        (thread) => thread.id,
+      ),
+    ).toEqual(["arranged-second", "arranged-first"]);
+  });
+
+  it("ranks by any activity under last_activity, not just the user's", () => {
+    const agentReplied = row({
+      id: "agent-replied",
+      createdAt: "2026-03-09T08:00:00.000Z",
+      updatedAt: "2026-03-09T10:30:00.000Z",
+      latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+      messages: [
+        { createdAt: "2026-03-09T10:00:00.000Z", role: "user" },
+        { createdAt: "2026-03-09T10:30:00.000Z", role: "assistant" },
+      ],
+    });
+    const userAsked = row({
+      id: "user-asked",
+      createdAt: "2026-03-09T09:00:00.000Z",
+      updatedAt: "2026-03-09T10:15:00.000Z",
+      latestUserMessageAt: "2026-03-09T10:15:00.000Z",
+      messages: [{ createdAt: "2026-03-09T10:15:00.000Z", role: "user" }],
+    });
+
+    expect(
+      sortActiveThreadsByOrderKey([userAsked, agentReplied], "last_activity").map((t) => t.id),
+    ).toEqual(["agent-replied", "user-asked"]);
+    expect(
+      sortActiveThreadsByOrderKey([userAsked, agentReplied], "updated_at").map((t) => t.id),
+    ).toEqual(["user-asked", "agent-replied"]);
+  });
+});
+
+describe("getThreadSortTimestamp with last_activity", () => {
+  it("ranks by the newest message regardless of role", () => {
+    const thread = makeThread({
+      latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+      updatedAt: "2026-03-09T10:30:00.000Z",
+      messages: [
+        { createdAt: "2026-03-09T10:00:00.000Z", role: "user" },
+        { createdAt: "2026-03-09T10:30:00.000Z", role: "assistant" },
+      ],
+    });
+
+    expect(getThreadSortTimestamp(thread, "last_activity")).toBe(
+      Date.parse("2026-03-09T10:30:00.000Z"),
+    );
+  });
+
+  it("does not regress last user message ordering for updated_at", () => {
+    const thread = makeThread({
+      latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+      updatedAt: "2026-03-09T10:30:00.000Z",
+      messages: [
+        { createdAt: "2026-03-09T10:00:00.000Z", role: "user" },
+        { createdAt: "2026-03-09T10:30:00.000Z", role: "assistant" },
+      ],
+    });
+
+    expect(getThreadSortTimestamp(thread, "updated_at")).toBe(
+      Date.parse("2026-03-09T10:00:00.000Z"),
+    );
+  });
+
+  it("falls back to updatedAt when the thread carries no messages", () => {
+    const thread = makeThread({
+      latestUserMessageAt: null,
+      messages: [],
+      createdAt: "2026-03-09T09:00:00.000Z",
+      updatedAt: "2026-03-09T11:00:00.000Z",
+    });
+
+    expect(getThreadSortTimestamp(thread, "last_activity")).toBe(
+      Date.parse("2026-03-09T11:00:00.000Z"),
+    );
+  });
+});
+
+describe("sortThreads with last_activity", () => {
+  it("floats a thread whose agent replied most recently above a newer user message", () => {
+    const agentReplied = makeThread({
+      id: "agent-replied",
+      latestUserMessageAt: "2026-03-09T10:00:00.000Z",
+      updatedAt: "2026-03-09T10:30:00.000Z",
+      messages: [
+        { createdAt: "2026-03-09T10:00:00.000Z", role: "user" },
+        { createdAt: "2026-03-09T10:30:00.000Z", role: "assistant" },
+      ],
+    });
+    const userAsked = makeThread({
+      id: "user-asked",
+      latestUserMessageAt: "2026-03-09T10:15:00.000Z",
+      updatedAt: "2026-03-09T10:15:00.000Z",
+      messages: [{ createdAt: "2026-03-09T10:15:00.000Z", role: "user" }],
+    });
+
+    expect(sortThreads([userAsked, agentReplied], "last_activity").map((t) => t.id)).toEqual([
+      "agent-replied",
+      "user-asked",
+    ]);
+    expect(sortThreads([userAsked, agentReplied], "updated_at").map((t) => t.id)).toEqual([
+      "user-asked",
+      "agent-replied",
+    ]);
   });
 });

@@ -70,7 +70,16 @@ import {
   useTheme,
 } from "../../hooks/useTheme";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
-import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import {
+  useClientSettings,
+  usePrimarySettings,
+  useUpdateClientSettings,
+  useUpdatePrimarySettings,
+} from "../../hooks/useSettings";
+import {
+  DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
+  type SidebarThreadSortOrder,
+} from "@t3tools/contracts/settings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import {
@@ -2057,7 +2066,16 @@ function LegacyFeaturesSection() {
   );
 }
 
+const THREAD_SORT_ORDER_LABELS: Record<SidebarThreadSortOrder, string> = {
+  manual: "Manual",
+  updated_at: "Last user message",
+  created_at: "Created at",
+  last_activity: "Last activity",
+};
+
 export function GeneralSettingsPanel() {
+  const threadSortOrder = useClientSettings((s) => s.sidebarThreadSortOrder);
+  const updateClientSettings = useUpdateClientSettings();
   const settings = usePrimarySettings();
   const updateSettings = useUpdatePrimarySettings();
   const navigate = useNavigate();
@@ -2160,6 +2178,51 @@ export function GeneralSettingsPanel() {
               }}
               aria-label="Project grouping"
             />
+          }
+        />
+
+        <SettingsRow
+          {...searchableSetting("thread-sorting")}
+          description="How the active list is ordered. Manual keeps the arrangement you drag; the time-based modes ignore it while selected."
+          resetAction={
+            threadSortOrder !== DEFAULT_SIDEBAR_THREAD_SORT_ORDER ? (
+              <SettingResetButton
+                label="thread sorting"
+                onClick={() =>
+                  updateClientSettings({
+                    sidebarThreadSortOrder: DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={threadSortOrder}
+              onValueChange={(value) => {
+                updateClientSettings({
+                  sidebarThreadSortOrder: value as SidebarThreadSortOrder,
+                });
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-48" aria-label="Thread sorting">
+                <SelectValue>{THREAD_SORT_ORDER_LABELS[threadSortOrder]}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                <SelectItem hideIndicator value="manual">
+                  Manual
+                </SelectItem>
+                <SelectItem hideIndicator value="updated_at">
+                  Last user message
+                </SelectItem>
+                <SelectItem hideIndicator value="last_activity">
+                  Last activity
+                </SelectItem>
+                <SelectItem hideIndicator value="created_at">
+                  Created at
+                </SelectItem>
+              </SelectPopup>
+            </Select>
           }
         />
 
