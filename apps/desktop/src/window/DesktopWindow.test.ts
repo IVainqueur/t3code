@@ -124,6 +124,8 @@ function makeFakeBrowserWindow() {
 
   return {
     window: window as unknown as Electron.BrowserWindow,
+    focus: window.focus,
+    restore: window.restore,
     getBounds: window.getBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
@@ -1536,4 +1538,94 @@ describe("DesktopWindow", () => {
       }).pipe(Effect.provide(layer));
     }),
   );
+
+  describe("secondary windows", () => {
+    it.effect(
+      "creates a secondary window that loads the main URL and registers it with an empty thread list",
+      () =>
+        Effect.gen(function* () {
+          const main = makeFakeBrowserWindow();
+          const secondary = makeFakeBrowserWindow();
+          const scenario = yield* makeSplashScenario([main.window, secondary.window]);
+
+          yield* Effect.gen(function* () {
+            const desktopWindow = yield* DesktopWindow.DesktopWindow;
+            yield* desktopWindow.createMain;
+            const windowId = yield* desktopWindow.createSecondaryWindow([]);
+
+            assert.isNotEmpty(secondary.loadURL.mock.calls);
+            assert.deepEqual(secondary.loadURL.mock.calls, main.loadURL.mock.calls);
+            assert.deepEqual(
+              desktopWindow.windowThreadRegistry.snapshot().windowThreadKeys[windowId],
+              [],
+            );
+          }).pipe(Effect.provide(scenario.layer));
+        }),
+    );
+
+    it.effect("assigns the initial thread keys to the secondary window", () =>
+      Effect.gen(function* () {
+        const main = makeFakeBrowserWindow();
+        const secondary = makeFakeBrowserWindow();
+        const scenario = yield* makeSplashScenario([main.window, secondary.window]);
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.createMain;
+          const windowId = yield* desktopWindow.createSecondaryWindow(["env-1:thread-1"]);
+
+          assert.equal(desktopWindow.windowThreadRegistry.ownerOf("env-1:thread-1"), windowId);
+        }).pipe(Effect.provide(scenario.layer));
+      }),
+    );
+
+    it.effect("releases the secondary window's threads when it closes", () =>
+      Effect.gen(function* () {
+        const main = makeFakeBrowserWindow();
+        const secondary = makeFakeBrowserWindow();
+        const scenario = yield* makeSplashScenario([main.window, secondary.window]);
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.createMain;
+          const windowId = yield* desktopWindow.createSecondaryWindow(["env-1:thread-1"]);
+
+          const closed = secondary.windowListeners.get("closed");
+          if (!closed) {
+            return yield* Effect.die("closed listener was not registered");
+          }
+          closed();
+
+          assert.isUndefined(
+            desktopWindow.windowThreadRegistry.snapshot().windowThreadKeys[windowId],
+          );
+          assert.isUndefined(desktopWindow.windowThreadRegistry.ownerOf("env-1:thread-1"));
+        }).pipe(Effect.provide(scenario.layer));
+      }),
+    );
+
+    it.effect("focuses the specific window a thread lives in, not focusedMainOrFirst", () =>
+      Effect.gen(function* () {
+        const main = makeFakeBrowserWindow();
+        const secondary = makeFakeBrowserWindow();
+        const scenario = yield* makeSplashScenario([main.window, secondary.window]);
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.createMain;
+          const windowId = yield* desktopWindow.createSecondaryWindow([]);
+
+          yield* desktopWindow.focusWindow(windowId);
+          assert.equal(secondary.focus.mock.calls.length, 1);
+          assert.equal(main.focus.mock.calls.length, 0);
+          assert.equal(secondary.restore.mock.calls.length, 0);
+
+          secondary.isMinimized.mockReturnValue(true);
+          yield* desktopWindow.focusWindow(windowId);
+          assert.equal(secondary.restore.mock.calls.length, 1);
+          assert.equal(secondary.focus.mock.calls.length, 2);
+        }).pipe(Effect.provide(scenario.layer));
+      }),
+    );
+  });
 });

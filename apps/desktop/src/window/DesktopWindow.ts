@@ -8,6 +8,8 @@ import * as Ref from "effect/Ref";
 
 import * as Electron from "electron";
 
+import * as NodeCrypto from "node:crypto";
+
 import { type DesktopSnapShotEvent, DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
@@ -29,12 +31,17 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
+import { WindowThreadRegistry, type WindowId } from "./WindowThreadRegistry.ts";
 
 const TITLEBAR_HEIGHT = 40;
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
 const MAIN_WINDOW_BOUNDS_PERSIST_DEBOUNCE_MS = 500;
+// The well-known id of the main window in `windowThreadRegistry` /
+// `windowsById`. Downstream IPC and menu code rely on this exact string to
+// address the main window rather than a generated id.
+export const MAIN_WINDOW_ID: WindowId = "main";
 const DEVELOPMENT_LOAD_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const;
 // Renderer crash (usually V8 OOM on long sessions) recovery: reload after a
 // short delay, at most MAX_ATTEMPTS times per rolling WINDOW so a renderer
@@ -119,6 +126,20 @@ export class DesktopWindow extends Context.Service<
     // the main window.
     readonly zoomMain: (direction: MainWindowZoomDirection) => Effect.Effect<void>;
     readonly syncAppearance: Effect.Effect<void>;
+    // Opens an additional app window carrying its own thread ownership, distinct
+    // from the single main window this file otherwise assumes. Loads the same
+    // renderer bundle as the main window and registers with
+    // `windowThreadRegistry` so IPC handlers can route thread traffic to it.
+    readonly createSecondaryWindow: (
+      initialThreadKeys: ReadonlyArray<string>,
+    ) => Effect.Effect<WindowId, DesktopWindowError>;
+    // Focuses (and restores, if minimized) the specific window owning
+    // `windowId`, unlike `zoomMain`/`dispatchMenuAction` which always target
+    // `focusedMainOrFirst`.
+    readonly focusWindow: (windowId: WindowId) => Effect.Effect<void>;
+    // Exposed so IPC handlers (multi-window thread routing) can call
+    // snapshot()/assignThread()/ownerOf()/subscribe() directly.
+    readonly windowThreadRegistry: WindowThreadRegistry;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
 
@@ -311,6 +332,22 @@ export const make = Effect.gen(function* () {
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+  // Tracks which OS window owns which thread, and lets `focusWindow` address a
+  // specific window rather than always falling back to `focusedMainOrFirst`.
+  const windowThreadRegistry = new WindowThreadRegistry();
+  const windowsById = new Map<WindowId, Electron.BrowserWindow>();
+  const registerWindow = (
+    windowId: WindowId,
+    window: Electron.BrowserWindow,
+    initialThreadKeys: ReadonlyArray<string>,
+  ): void => {
+    windowThreadRegistry.createWindow(windowId, initialThreadKeys);
+    windowsById.set(windowId, window);
+    window.on("closed", () => {
+      windowThreadRegistry.releaseWindow(windowId);
+      windowsById.delete(windowId);
+    });
+  };
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
   const runFork = Effect.runForkWith(context);
   const runPromise = Effect.runPromiseWith(context);
@@ -820,9 +857,30 @@ export const make = Effect.gen(function* () {
   const createMain = Effect.gen(function* () {
     const window = yield* createWindow();
     yield* electronWindow.setMain(window);
+    registerWindow(MAIN_WINDOW_ID, window, []);
     yield* logWindowInfo("main window created");
     return window;
   }).pipe(Effect.withSpan("desktop.window.createMain"));
+
+  const createSecondaryWindow = Effect.fn("desktop.window.createSecondaryWindow")(function* (
+    initialThreadKeys: ReadonlyArray<string>,
+  ) {
+    const window = yield* createWindow();
+    const windowId: WindowId = NodeCrypto.randomUUID();
+    registerWindow(windowId, window, initialThreadKeys);
+    yield* logWindowInfo("secondary window created", { windowId });
+    return windowId;
+  });
+
+  const focusWindow = Effect.fn("desktop.window.focusWindow")(function* (windowId: WindowId) {
+    yield* Effect.annotateCurrentSpan({ windowId });
+    const window = windowsById.get(windowId);
+    if (window === undefined || window.isDestroyed()) return;
+    if (window.isMinimized()) {
+      window.restore();
+    }
+    window.focus();
+  });
 
   const ensureMain = Effect.gen(function* () {
     const existingWindow = yield* currentMainWindow;
@@ -995,6 +1053,9 @@ export const make = Effect.gen(function* () {
         syncWindowAppearance(window, shouldUseDarkColors, environment.platform),
       );
     }).pipe(Effect.withSpan("desktop.window.syncAppearance")),
+    createSecondaryWindow,
+    focusWindow,
+    windowThreadRegistry,
   });
 });
 

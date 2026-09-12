@@ -14,6 +14,7 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopTelemetryPublisher from "../telemetry/DesktopTelemetryPublisher.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
+import { WindowThreadRegistry } from "../window/WindowThreadRegistry.ts";
 import * as DesktopWslEnvironment from "../wsl/DesktopWslEnvironment.ts";
 import * as DesktopBackendConfiguration from "./DesktopBackendConfiguration.ts";
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
@@ -101,6 +102,9 @@ function makePoolLayer(
           dispatchSnapShotEvent: () => Effect.void,
           zoomMain: () => Effect.die("unexpected zoom"),
           syncAppearance: Effect.void,
+          createSecondaryWindow: () => Effect.die("unexpected secondary window creation"),
+          focusWindow: () => Effect.void,
+          windowThreadRegistry: new WindowThreadRegistry(),
         } satisfies DesktopWindow.DesktopWindow["Service"]),
       ),
     ),

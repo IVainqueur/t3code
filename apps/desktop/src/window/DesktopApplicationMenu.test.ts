@@ -15,6 +15,7 @@ import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import { WindowThreadRegistry } from "./WindowThreadRegistry.ts";
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -90,6 +91,9 @@ const makeDesktopWindowLayer = (selectedAction: Deferred.Deferred<string>) =>
     zoomMain: (direction) =>
       Deferred.succeed(selectedAction, `zoom-${direction}`).pipe(Effect.asVoid),
     syncAppearance: Effect.void,
+    createSecondaryWindow: () => Effect.die("unexpected createSecondaryWindow"),
+    focusWindow: () => Effect.void,
+    windowThreadRegistry: new WindowThreadRegistry(),
   } satisfies DesktopWindow.DesktopWindow["Service"]);
 
 const makeElectronMenuLayer = (
