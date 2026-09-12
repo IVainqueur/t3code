@@ -61,4 +61,25 @@ describe("WindowThreadRegistry", () => {
     registry.releaseWindow("win-1");
     expect(listener).toHaveBeenCalledTimes(2);
   });
+
+  it("throws when assigning a thread to an unregistered window", () => {
+    const registry = new WindowThreadRegistry();
+    expect(() => {
+      registry.assignThread("env-1:thread-1", "win-999");
+    }).toThrow();
+  });
+
+  it("recreating an existing window cleans up old thread references", () => {
+    const registry = new WindowThreadRegistry();
+    registry.createWindow("win-1", ["env-1:thread-1", "env-1:thread-2"]);
+
+    expect(registry.ownerOf("env-1:thread-1")).toBe("win-1");
+    expect(registry.ownerOf("env-1:thread-2")).toBe("win-1");
+
+    registry.createWindow("win-1");
+
+    expect(registry.ownerOf("env-1:thread-1")).toBeUndefined();
+    expect(registry.ownerOf("env-1:thread-2")).toBeUndefined();
+    expect(registry.snapshot().windowThreadKeys["win-1"]).toEqual([]);
+  });
 });

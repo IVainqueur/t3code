@@ -11,6 +11,9 @@ export class WindowThreadRegistry {
   private readonly listeners = new Set<(snapshot: WindowRegistrySnapshot) => void>();
 
   createWindow(windowId: WindowId, initialThreadKeys: ReadonlyArray<string> = []): void {
+    if (this.threadKeysByWindow.has(windowId)) {
+      this.releaseWindow(windowId);
+    }
     this.threadKeysByWindow.set(windowId, new Set());
     for (const threadKey of initialThreadKeys) {
       this.assignThreadWithoutNotify(threadKey, windowId);
@@ -54,6 +57,9 @@ export class WindowThreadRegistry {
   }
 
   private assignThreadWithoutNotify(threadKey: string, windowId: WindowId): void {
+    if (!this.threadKeysByWindow.has(windowId)) {
+      throw new Error(`Window ${windowId} does not exist`);
+    }
     const previousOwner = this.windowByThreadKey.get(threadKey);
     if (previousOwner !== undefined) {
       this.threadKeysByWindow.get(previousOwner)?.delete(threadKey);
