@@ -334,6 +334,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
     const createCalls = yield* Ref.make(0);
     const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
     const revealedWindows = yield* Ref.make<Electron.BrowserWindow[]>([]);
+    const previewMainWindowSets = yield* Ref.make<Electron.BrowserWindow[]>([]);
     const fallbackWindow = createOutcomes.find(
       (window): window is Electron.BrowserWindow => window !== null,
     );
@@ -412,7 +413,8 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           Layer.succeed(ElectronWindow.ElectronWindow, electronWindowShape),
           Layer.mock(PreviewManager.PreviewManager)({
             getBrowserSession: () => Effect.succeed({} as Electron.Session),
-            setMainWindow: () => Effect.void,
+            setMainWindow: (window) =>
+              Ref.update(previewMainWindowSets, (windows) => [...windows, window]),
             isBrowserPartition: (partition) => partition.startsWith("persist:t3code-preview-"),
             getBrowserPartition: () => Effect.succeed("persist:t3code-preview-test"),
           }),
@@ -420,7 +422,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       ),
     );
 
-    return { layer, createCalls, mainWindow, revealedWindows } as const;
+    return { layer, createCalls, mainWindow, revealedWindows, previewMainWindowSets } as const;
   });
 
 const captureOne = DesktopSnapShotId.make("11111111-1111-4111-8111-111111111111");
@@ -1626,6 +1628,27 @@ describe("DesktopWindow", () => {
           assert.equal(secondary.focus.mock.calls.length, 2);
         }).pipe(Effect.provide(scenario.layer));
       }),
+    );
+
+    // PreviewManager keeps a single main-window reference that gates background
+    // throttling and guest-webview host routing. A secondary window must not
+    // silently steal that reference away from the real main window.
+    it.effect(
+      "registers only the main window with the preview manager, never a secondary window",
+      () =>
+        Effect.gen(function* () {
+          const main = makeFakeBrowserWindow();
+          const secondary = makeFakeBrowserWindow();
+          const scenario = yield* makeSplashScenario([main.window, secondary.window]);
+
+          yield* Effect.gen(function* () {
+            const desktopWindow = yield* DesktopWindow.DesktopWindow;
+            yield* desktopWindow.createMain;
+            yield* desktopWindow.createSecondaryWindow([]);
+
+            assert.deepEqual(yield* Ref.get(scenario.previewMainWindowSets), [main.window]);
+          }).pipe(Effect.provide(scenario.layer));
+        }),
     );
   });
 });

@@ -379,10 +379,13 @@ export const make = Effect.gen(function* () {
   const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
 
-  const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
-    Electron.BrowserWindow,
-    DesktopWindowError
-  > {
+  const createWindow = Effect.fn("desktop.window.createWindow")(function* (input: {
+    // PreviewManager keeps a single main-window reference that gates
+    // background throttling and guest-webview host routing. Only the real
+    // main window may claim it -- a secondary window must not silently steal
+    // preview/browser-guest routing away from main.
+    readonly isMain: boolean;
+  }): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
     yield* previewManager.getBrowserSession();
     const applicationUrl = getDesktopUrl(environment.isDevelopment);
     const iconPaths = yield* assets.iconPaths;
@@ -527,7 +530,9 @@ export const make = Effect.gen(function* () {
     );
     flushMainWindowBounds = flushBoundsPersist;
 
-    yield* previewManager.setMainWindow(window);
+    if (input.isMain) {
+      yield* previewManager.setMainWindow(window);
+    }
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -855,7 +860,7 @@ export const make = Effect.gen(function* () {
   });
 
   const createMain = Effect.gen(function* () {
-    const window = yield* createWindow();
+    const window = yield* createWindow({ isMain: true });
     yield* electronWindow.setMain(window);
     registerWindow(MAIN_WINDOW_ID, window, []);
     yield* logWindowInfo("main window created");
@@ -865,7 +870,7 @@ export const make = Effect.gen(function* () {
   const createSecondaryWindow = Effect.fn("desktop.window.createSecondaryWindow")(function* (
     initialThreadKeys: ReadonlyArray<string>,
   ) {
-    const window = yield* createWindow();
+    const window = yield* createWindow({ isMain: false });
     const windowId: WindowId = NodeCrypto.randomUUID();
     registerWindow(windowId, window, initialThreadKeys);
     yield* logWindowInfo("secondary window created", { windowId });
