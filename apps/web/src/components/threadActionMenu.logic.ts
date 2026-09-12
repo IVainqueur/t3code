@@ -1,6 +1,8 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
+import type { ReminderPreset } from "./Sidebar.reminder";
+
 /**
  * Ids for the per-thread action menu. Snooze presets are dispatched as
  * `snooze:<presetId>` so the union stays closed while the preset list
@@ -16,6 +18,10 @@ export type ThreadActionMenuId =
   | "snooze"
   | `snooze:${string}`
   | "unsnooze"
+  | "remind"
+  | `remind:${string}`
+  | "remind-custom"
+  | "clear-reminder"
   | "rename"
   | "regenerate-title"
   | "mark-unread"
@@ -42,6 +48,13 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
+  /** Empty (or absent) hides reminders entirely, so callers that do not
+      support them keep their existing menu. */
+  readonly reminderPresets?: ReadonlyArray<ReminderPreset>;
+  readonly hasReminder?: boolean;
+  /** The custom-minutes item needs a popover to open. Surfaces without one
+      (the chat header) offer the presets only. */
+  readonly supportsCustomReminder?: boolean;
 }
 
 /**
@@ -92,6 +105,34 @@ export function buildThreadActionMenuItems(
                   id: `snooze:${preset.id}` as const,
                   label: `${preset.label} (${preset.whenLabel})`,
                 })),
+              },
+        ]
+      : []),
+    // Unlike snooze, a reminder leaves the thread exactly where it is until it
+    // comes due, so it is offered regardless of the snooze capability.
+    ...((state.reminderPresets?.length ?? 0) > 0
+      ? [
+          state.hasReminder === true
+            ? { id: "clear-reminder" as const, label: "Clear reminder", icon: "clock" }
+            : {
+                id: "remind" as const,
+                label: "Remind me",
+                icon: "clock",
+                children: [
+                  ...(state.reminderPresets ?? []).map((preset) => ({
+                    id: `remind:${preset.id}` as const,
+                    label: `${preset.label} (${preset.whenLabel})`,
+                  })),
+                  ...(state.supportsCustomReminder === false
+                    ? []
+                    : [
+                        {
+                          id: "remind-custom" as const,
+                          label: "Custom…",
+                          separatorBefore: true,
+                        },
+                      ]),
+                ],
               },
         ]
       : []),

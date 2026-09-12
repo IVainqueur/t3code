@@ -11,6 +11,7 @@ import { useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 
 import { resolveSnoozePresets, snoozeWakeDescription } from "../components/Sidebar.snooze";
+import { reminderDescription, resolveReminderPresets } from "../components/Sidebar.reminder";
 import {
   buildThreadActionMenuItems,
   type ThreadActionMenuId,
@@ -95,6 +96,8 @@ export function useThreadActionMenu(input: {
   });
   const handleNewThread = useNewThreadHandler();
   const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
+  const setThreadReminder = useUiStateStore((s) => s.setThreadReminder);
+  const clearThreadReminder = useUiStateStore((s) => s.clearThreadReminder);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -137,6 +140,10 @@ export function useThreadActionMenu(input: {
         };
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
+        const reminderPresets = resolveReminderPresets(now, timestampFormat);
+        const reminderThreadKey = scopedThreadKey(threadRef);
+        const hasReminder =
+          useUiStateStore.getState().threadRemindAtById[reminderThreadKey] !== undefined;
         const items = buildThreadActionMenuItems({
           branch: thread.branch ?? null,
           isPinned: thread.pinnedAt != null,
@@ -147,6 +154,10 @@ export function useThreadActionMenu(input: {
           isRunning: thread.session?.status === "running" && thread.session.activeTurnId != null,
           supports,
           snoozePresets,
+          reminderPresets,
+          hasReminder,
+          // No popover on this surface to host the minutes field.
+          supportsCustomReminder: false,
         });
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -174,6 +185,29 @@ export function useThreadActionMenu(input: {
                       failureToast("Failed to wake thread", squashAtomCommandFailure(undone));
                     }
                   });
+                },
+              },
+            }),
+          );
+          return;
+        }
+        if (action.startsWith("remind:")) {
+          const preset = reminderPresets.find((candidate) => `remind:${candidate.id}` === action);
+          if (!preset) return;
+          // Local and synchronous — nothing to await, nothing to fail. Undo
+          // restores a replaced reminder rather than just clearing this one.
+          const previous = useUiStateStore.getState().threadRemindAtById[reminderThreadKey] ?? null;
+          setThreadReminder(reminderThreadKey, preset.remindAt);
+          toastManager.add(
+            stackedThreadToast({
+              type: "success",
+              title: `Reminder set for ${reminderDescription(preset.remindAt, timestampFormat)}`,
+              timeout: 5_000,
+              actionProps: {
+                children: "Undo",
+                onClick: () => {
+                  if (previous === null) clearThreadReminder(reminderThreadKey);
+                  else setThreadReminder(reminderThreadKey, previous);
                 },
               },
             }),
@@ -230,6 +264,9 @@ export function useThreadActionMenu(input: {
             return;
           case "unsnooze":
             await reportFailure("Failed to wake thread", () => unsnoozeThread(threadRef));
+            return;
+          case "clear-reminder":
+            clearThreadReminder(reminderThreadKey);
             return;
           case "pin":
             await reportFailure("Failed to pin thread", () => pinThread(threadRef));
@@ -330,6 +367,7 @@ export function useThreadActionMenu(input: {
     },
     [
       archiveThread,
+      clearThreadReminder,
       confirmThreadArchive,
       confirmThreadDelete,
       confirmAndUnpinThread,
@@ -346,6 +384,7 @@ export function useThreadActionMenu(input: {
       projectGroupingSettings,
       projects,
       router,
+      setThreadReminder,
       settleThread,
       snoozeThread,
       threadRef,

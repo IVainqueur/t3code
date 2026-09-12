@@ -9,10 +9,14 @@ import { projectThreadAwareness } from "@t3tools/shared/agentAwareness";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 
+import { nextPendingReminderAtMs } from "@t3tools/client-runtime/state/thread-reminder";
+
 import { useClientSettings } from "../hooks/useSettings";
 import { useProjects, useThreadShells } from "../state/entities";
+import { useUiStateStore } from "../uiStateStore";
 import { dispatchNotification } from "./notificationPlatform";
 import { createNotificationTracker } from "./notificationTracker";
+import { createReminderLedger, resolveReminderIntent } from "./reminderNotifier";
 
 /**
  * Focus has to be state, not a ref: the firing rule reads it, so a ref would
@@ -120,6 +124,85 @@ export function NotificationBridge() {
       });
     }
   }, [threads, projects, notifications, focused, activeThreadKey, goToThread]);
+
+  // Reminders ride along here for the focus, route and navigation this
+  // component already owns, but they go through resolveReminderIntent rather
+  // than the tracker above: the tracker suppresses a first observation to
+  // stop reconnect storms, and a reminder that came due while the app was
+  // shut IS a first observation. Firing it then is the whole feature.
+  const threadRemindAtById = useUiStateStore((s) => s.threadRemindAtById);
+  const [reminderLedger] = useState(() =>
+    createReminderLedger(typeof window === "undefined" ? null : window.localStorage),
+  );
+  const [reminderTick, bumpReminderTick] = useState(0);
+  useEffect(() => {
+    // A reminder coming due is not accompanied by any other state change, so
+    // the boundary timer armed below is what re-runs this.
+    void reminderTick;
+    const entries = Object.entries(threadRemindAtById);
+    if (entries.length === 0) return;
+    const nowMs = new Date().getTime();
+    const projectTitleById = new Map(
+      projects.map((project) => [`${project.environmentId}:${project.id}`, project.title]),
+    );
+    const threadByKey = new Map(
+      threads.map((thread) => [`${thread.environmentId}:${thread.id}`, thread]),
+    );
+    for (const [threadKey, remindAt] of entries) {
+      const thread = threadByKey.get(threadKey);
+      if (!thread) continue;
+      const intent = resolveReminderIntent({
+        thread: {
+          environmentId: String(thread.environmentId),
+          threadId: String(thread.id),
+          threadTitle: thread.title,
+          projectTitle: projectTitleById.get(`${thread.environmentId}:${thread.projectId}`) ?? "",
+          // No lastVisitedAt: opening a thread clears the stored reminder
+          // outright, so its absence already carries the dismissal — and
+          // subscribing to the visit record here would re-run this effect on
+          // every completion.
+          remindAt,
+        },
+        nowMs,
+        settings: notifications,
+        appFocused: focused,
+        activeThreadKey,
+        alreadyFired: reminderLedger.has,
+      });
+      if (intent === null) continue;
+      // Recorded only when an intent came back, so a fire suppressed because
+      // you are looking at that thread arrives when you navigate away.
+      reminderLedger.record(intent.key);
+      void dispatchNotification({
+        intent,
+        desktopBridge: window.desktopBridge ?? null,
+        onActivate: (target) => goToThread(target),
+      });
+    }
+    const nextAtMs = nextPendingReminderAtMs(
+      entries.map(([, remindAt]) => ({ remindAt })),
+      nowMs,
+    );
+    if (nextAtMs === null) return;
+    // Same clamp as the sidebar's wake timer: setTimeout delays are signed
+    // 32-bit, so a far-future reminder would otherwise fire immediately and
+    // spin. Clamped, it just re-arms until the due time is in range.
+    const id = window.setTimeout(
+      () => bumpReminderTick((tick) => tick + 1),
+      Math.min(Math.max(0, nextAtMs - nowMs) + 50, 2_147_483_647),
+    );
+    return () => window.clearTimeout(id);
+  }, [
+    activeThreadKey,
+    focused,
+    goToThread,
+    notifications,
+    projects,
+    reminderLedger,
+    reminderTick,
+    threadRemindAtById,
+    threads,
+  ]);
 
   return null;
 }

@@ -24,6 +24,10 @@ import {
   threadWokeAt,
 } from "@t3tools/client-runtime/state/thread-settled";
 import { resolveSettledThreadTimestamp } from "@t3tools/client-runtime/state/thread-sort";
+import {
+  nextPendingReminderAtMs,
+  resolveThreadReminder,
+} from "@t3tools/client-runtime/state/thread-reminder";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import {
   parseScopedThreadKey,
@@ -207,6 +211,12 @@ import {
   snoozeWakeLabel,
   type SnoozePreset,
 } from "./Sidebar.snooze";
+import {
+  parseReminderMinutes,
+  reminderDescription,
+  remindAtFromMinutes,
+  resolveReminderPresets,
+} from "./Sidebar.reminder";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
@@ -489,6 +499,137 @@ function SnoozePopoverButton(props: {
             </span>
           </button>
         ))}
+      </PopoverPopup>
+    </Popover>
+  );
+}
+
+/**
+ * Hover entry point for reminders: an alarm button opening the preset ladder
+ * plus a free-text minutes field.
+ *
+ * The field is why this is a popover and not a context menu. `ContextMenuItem`
+ * has no input variant and the desktop menu is a native OS menu, so a text
+ * field inside the menu is structurally impossible; there is no prompt dialog
+ * primitive either. The row's context menu therefore offers presets and a
+ * "Custom…" item that opens this popover.
+ */
+function ReminderPopoverButton(props: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRemind: (remindAt: string) => void;
+  onClearReminder: () => void;
+  hasReminder: boolean;
+  timestampFormat: TimestampFormat;
+}) {
+  const { open, onOpenChange, onRemind, onClearReminder, hasReminder, timestampFormat } = props;
+  const [customMinutes, setCustomMinutes] = useState("");
+  // Presets resolve at open time so "In 1 hour" is relative to the click,
+  // not to when the row mounted.
+  const presets = useMemo(
+    () => (open ? resolveReminderPresets(new Date(), timestampFormat) : []),
+    [open, timestampFormat],
+  );
+  const customValid = parseReminderMinutes(customMinutes) !== null;
+  const submitCustom = useCallback(() => {
+    const minutes = parseReminderMinutes(customMinutes);
+    if (minutes === null) return;
+    onOpenChange(false);
+    onRemind(remindAtFromMinutes(new Date(), minutes));
+  }, [customMinutes, onOpenChange, onRemind]);
+  // Cleared as the popover closes, not from an effect watching `open`, so a
+  // stale entry cannot reappear the next time it opens.
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (!next) setCustomMinutes("");
+      onOpenChange(next);
+    },
+    [onOpenChange],
+  );
+  return (
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Remind me about this thread"
+                  onClick={(event) => event.stopPropagation()}
+                  onDoubleClick={(event) => event.stopPropagation()}
+                  className="inline-flex h-full cursor-pointer items-center gap-0.5 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                />
+              }
+            />
+          }
+        >
+          <AlarmClockIcon className="size-3" />
+        </TooltipTrigger>
+        <TooltipPopup>Remind me</TooltipPopup>
+      </Tooltip>
+      <PopoverPopup side="bottom" align="end" className="w-56" viewportClassName="p-1">
+        {presets.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenChange(false);
+              onRemind(preset.remindAt);
+            }}
+            className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
+          >
+            <span className="flex-1">{preset.label}</span>
+            <span className="font-mono text-[10px] text-muted-foreground/60 tabular-nums">
+              {preset.whenLabel}
+            </span>
+          </button>
+        ))}
+        <div className="mt-1 flex items-center gap-1 border-t border-border/60 px-1 pt-2 pb-1">
+          <Input
+            value={customMinutes}
+            onChange={(event) => setCustomMinutes(event.target.value)}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              // The row listens for Enter and Escape; the field owns both
+              // while it has focus.
+              event.stopPropagation();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                submitCustom();
+              }
+            }}
+            inputMode="numeric"
+            aria-label="Remind me in how many minutes"
+            placeholder="Minutes"
+            className="h-7 flex-1 text-xs"
+          />
+          <button
+            type="button"
+            disabled={!customValid}
+            onClick={(event) => {
+              event.stopPropagation();
+              submitCustom();
+            }}
+            className="cursor-pointer rounded-md px-2 py-1 text-xs text-foreground/90 hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            Set
+          </button>
+        </div>
+        {hasReminder ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenChange(false);
+              onClearReminder();
+            }}
+            className="mt-1 flex w-full cursor-pointer items-center rounded-md px-2 py-1.5 text-left text-xs text-foreground/90 hover:bg-accent hover:text-foreground"
+          >
+            Clear reminder
+          </button>
+        ) : null}
       </PopoverPopup>
     </Popover>
   );
@@ -975,6 +1116,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // When a snooze ended (timer or early wake); drives the Woke pill until
   // the user visits the thread.
   wokeAt: string | null;
+  /** Client-local reminder time for this thread, if one is set. */
+  remindAt: string | null;
+  /**
+   * Whether that reminder has come due, decided by the parent. The row cannot
+   * derive it: `remindAt` does not change at the due moment, so a row-local
+   * comparison would not re-render the memoized row when the boundary passes.
+   */
+  isReminderDue: boolean;
   isActive: boolean;
   openPullRequestsInRightPanel: boolean;
   jumpLabel: string | null;
@@ -1000,6 +1149,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   onUnsnooze: (threadRef: ScopedThreadRef) => void;
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
+  onSetReminder: (threadRef: ScopedThreadRef, remindAt: string) => void;
+  onDismissReminder: (threadRef: ScopedThreadRef) => void;
+  /** Owned by the parent so the row's context menu can open it. */
+  reminderMenuOpen: boolean;
+  onReminderMenuOpenChange: (threadRef: ScopedThreadRef, open: boolean) => void;
   /**
    * External files dropped onto this row. The row highlights while the drag
    * is over it; the callback opens the thread and hands the files to its
@@ -1013,6 +1167,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     onCommitRename,
     onContextMenu,
     onAcknowledgeWoke,
+    onDismissReminder,
+    onReminderMenuOpenChange,
+    onSetReminder,
     onFileDropThreads,
     onRenameTitleChange,
     onSettle,
@@ -1100,6 +1257,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // counts as never-visited, so corrupt local data cannot eat the wake signal.
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
+  // Same shape as the Woke rule below, and the same reason: a visit at or
+  // after the due moment is the dismissal, and an unparseable stamp counts as
+  // never-visited so corrupt local data cannot eat the signal. Opening the
+  // thread also clears the stored reminder outright; this covers the frame
+  // before that lands.
+  const remindAtDate = props.remindAt === null ? null : parseTimestampDate(props.remindAt);
+  const isReminderDue =
+    props.isReminderDue &&
+    remindAtDate !== null &&
+    (lastVisitedDate === null || lastVisitedDate < remindAtDate);
   const isWoke =
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
@@ -1155,20 +1322,35 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                   icon: null,
                   className: "text-red-700 dark:text-red-300",
                 }
-              : isWoke
+              : isReminderDue
                 ? {
-                    label: "Woke",
-                    icon: "woke" as const,
-                    className: "text-amber-700 dark:text-amber-300",
+                    // Above Woke: the user explicitly asked to be interrupted
+                    // at this moment, which outranks a wake they scheduled as
+                    // a side effect of hiding the thread. Violet is the one
+                    // hue the status convention has not already spoken for.
+                    label: "Reminder",
+                    icon: "reminder" as const,
+                    className: "text-violet-700 dark:text-violet-300",
                   }
-                : isUnread
+                : isWoke
                   ? {
-                      label: "Done",
-                      icon: "done" as const,
-                      className: "text-emerald-700 dark:text-emerald-300",
+                      label: "Woke",
+                      icon: "woke" as const,
+                      className: "text-amber-700 dark:text-amber-300",
                     }
-                  : null;
+                  : isUnread
+                    ? {
+                        label: "Done",
+                        icon: "done" as const,
+                        className: "text-emerald-700 dark:text-emerald-300",
+                      }
+                    : null;
   const isWokeStatus = topStatus?.icon === "woke";
+  const isReminderStatus = topStatus?.icon === "reminder";
+  // Both of these pills ARE actions (click to dismiss), so they keep pointer
+  // events and stay visible while the hover controls appear beside them.
+  // Every read-only status yields instead.
+  const isActionableStatus = isWokeStatus || isReminderStatus;
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
     effectiveEnvMode: thread.worktreePath === null ? "local" : "worktree",
@@ -1229,6 +1411,23 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     },
     [onAcknowledgeWoke, props.wokeAt, threadRef],
   );
+  const handleDismissReminderClick = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onDismissReminder(threadRef);
+    },
+    [onDismissReminder, threadRef],
+  );
+  const handleRemind = useCallback(
+    (remindAt: string) => {
+      onSetReminder(threadRef, remindAt);
+    },
+    [onSetReminder, threadRef],
+  );
+  const handleClearReminder = useCallback(() => {
+    onDismissReminder(threadRef);
+  }, [onDismissReminder, threadRef]);
   const handleContextMenu = useCallback(
     (event: ReactMouseEvent) => {
       event.preventDefault();
@@ -1357,6 +1556,22 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   useEffect(() => {
     if (!showSnoozeButton) setSnoozeMenuOpen(false);
   }, [showSnoozeButton]);
+  // Reminders are client-local, so unlike snooze there is no capability to
+  // gate on and no server state that can make the action illegal mid-flight.
+  // The open state is the parent's, not local, because the row's context menu
+  // "Custom…" item has to be able to open this popover — the native OS menu
+  // cannot host a text field itself.
+  const reminderMenuOpen = props.reminderMenuOpen;
+  const setReminderMenuOpen = useCallback(
+    (open: boolean) => {
+      onReminderMenuOpenChange(threadRef, open);
+    },
+    [onReminderMenuOpenChange, threadRef],
+  );
+  const hasReminder = props.remindAt !== null;
+  // Same reason as snooze: the pointer leaves the row while the popover is
+  // up, which would fade the controls out from under the open menu.
+  const rowMenuOpen = snoozeMenuOpen || reminderMenuOpen;
   const handlePrClick = useCallback(
     (event: ReactMouseEvent<HTMLAnchorElement>) => {
       const url = pr?.url ?? currentLinkedPr?.url;
@@ -1735,7 +1950,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         sortable?.isDragging && "relative z-20",
       )}
     >
-      <Tooltip disabled={snoozeMenuOpen || sortable?.isDragging}>
+      <Tooltip disabled={rowMenuOpen || sortable?.isDragging}>
         <TooltipTrigger
           render={
             <div
@@ -1784,15 +1999,39 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     while the other controls appear beside it. */}
                   <span
                     className={cn(
-                      isWokeStatus
+                      isActionableStatus
                         ? "pointer-events-auto"
                         : "pointer-events-none group-has-[:focus-visible]/sidebar-status-slot:absolute group-has-[:focus-visible]/sidebar-status-slot:right-0 group-has-[:focus-visible]/sidebar-status-slot:opacity-0 group-hover/sidebar-row:absolute group-hover/sidebar-row:right-0 group-hover/sidebar-row:opacity-0",
                       "flex items-center self-center justify-self-end tabular-nums text-secondary-label transition-opacity",
-                      snoozeMenuOpen && "pointer-events-none absolute right-0 opacity-0",
+                      rowMenuOpen && "pointer-events-none absolute right-0 opacity-0",
                     )}
                   >
                     {topStatus ? (
-                      isWokeStatus ? (
+                      isReminderStatus ? (
+                        <Tooltip>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                type="button"
+                                aria-label="Dismiss reminder"
+                                onClick={handleDismissReminderClick}
+                                className={cn(
+                                  "inline-flex cursor-pointer items-center gap-1 rounded-sm font-medium outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring",
+                                  topStatus.className,
+                                )}
+                              >
+                                <AlarmClockIcon aria-hidden className="size-4 shrink-0" />
+                                <span role="status">{topStatus.label}</span>
+                              </button>
+                            }
+                          />
+                          <TooltipPopup side="top">
+                            {props.remindAt === null
+                              ? "Dismiss reminder"
+                              : `Reminder set for ${reminderDescription(props.remindAt, props.timestampFormat)} — click to dismiss`}
+                          </TooltipPopup>
+                        </Tooltip>
+                      ) : isWokeStatus ? (
                         <Tooltip>
                           <TooltipTrigger
                             render={
@@ -1839,63 +2078,71 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       threadTimeLabel(thread)
                     )}
                   </span>
-                  {props.settlementSupported || showSnoozeButton || hasUnsentDraft ? (
-                    <span
-                      className={cn(
-                        // focus-visible, not focus-within: a mouse click leaves
-                        // the Settle button focused, and a plain focus-within
-                        // would keep the controls pinned over the status label
-                        // once the pointer moves away (e.g. after a failed
-                        // settle) instead of cross-fading back.
-                        "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:static group-hover/sidebar-row:opacity-100",
-                        snoozeMenuOpen && "pointer-events-auto static opacity-100",
-                      )}
-                    >
-                      {hasUnsentDraft ? (
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <button
-                                type="button"
-                                aria-label="Discard draft"
-                                onClick={handleDiscardDraftClick}
-                                className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                              />
-                            }
-                          >
-                            <XIcon className="size-3.5" />
-                          </TooltipTrigger>
-                          <TooltipPopup side="top">Discard draft</TooltipPopup>
-                        </Tooltip>
-                      ) : null}
-                      {showSnoozeButton ? (
-                        <SnoozePopoverButton
-                          open={snoozeMenuOpen}
-                          onOpenChange={setSnoozeMenuOpen}
-                          onSnooze={handleSnoozePreset}
-                          timestampFormat={props.timestampFormat}
-                        />
-                      ) : null}
-                      {props.settlementSupported ? (
-                        <Tooltip>
-                          <TooltipTrigger
-                            render={
-                              <button
-                                type="button"
-                                aria-label="Settle thread"
-                                onClick={handleSettleClick}
-                                className="-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
-                              />
-                            }
-                          >
-                            <CheckIcon className="size-3.5" />
-                            Settle
-                          </TooltipTrigger>
-                          <TooltipPopup>Settle thread</TooltipPopup>
-                        </Tooltip>
-                      ) : null}
-                    </span>
-                  ) : null}
+                  {/* The reminder button is always here — it needs no server
+                      capability — so the hover slot itself is unconditional. */}
+                  <span
+                    className={cn(
+                      // focus-visible, not focus-within: a mouse click leaves
+                      // the Settle button focused, and a plain focus-within
+                      // would keep the controls pinned over the status label
+                      // once the pointer moves away (e.g. after a failed
+                      // settle) instead of cross-fading back.
+                      "pointer-events-none absolute inset-y-0 right-0 flex items-stretch opacity-0 transition-opacity has-[:focus-visible]:pointer-events-auto has-[:focus-visible]:static has-[:focus-visible]:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:static group-hover/sidebar-row:opacity-100",
+                      rowMenuOpen && "pointer-events-auto static opacity-100",
+                    )}
+                  >
+                    {hasUnsentDraft ? (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              aria-label="Discard draft"
+                              onClick={handleDiscardDraftClick}
+                              className="inline-flex cursor-pointer items-center rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                            />
+                          }
+                        >
+                          <XIcon className="size-3.5" />
+                        </TooltipTrigger>
+                        <TooltipPopup side="top">Discard draft</TooltipPopup>
+                      </Tooltip>
+                    ) : null}
+                    <ReminderPopoverButton
+                      open={reminderMenuOpen}
+                      onOpenChange={setReminderMenuOpen}
+                      onRemind={handleRemind}
+                      onClearReminder={handleClearReminder}
+                      hasReminder={hasReminder}
+                      timestampFormat={props.timestampFormat}
+                    />
+                    {showSnoozeButton ? (
+                      <SnoozePopoverButton
+                        open={snoozeMenuOpen}
+                        onOpenChange={setSnoozeMenuOpen}
+                        onSnooze={handleSnoozePreset}
+                        timestampFormat={props.timestampFormat}
+                      />
+                    ) : null}
+                    {props.settlementSupported ? (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              aria-label="Settle thread"
+                              onClick={handleSettleClick}
+                              className="-mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground hover:text-foreground"
+                            />
+                          }
+                        >
+                          <CheckIcon className="size-3.5" />
+                          Settle
+                        </TooltipTrigger>
+                        <TooltipPopup>Settle thread</TooltipPopup>
+                      </Tooltip>
+                    ) : null}
+                  </span>
                 </span>
               )}
             </div>
@@ -2225,6 +2472,28 @@ export default function Sidebar() {
     },
     [markThreadVisited],
   );
+  const setThreadReminder = useUiStateStore((s) => s.setThreadReminder);
+  const clearThreadReminder = useUiStateStore((s) => s.clearThreadReminder);
+  // Reminders are set and cleared locally, so unlike snooze there is no
+  // command to await, nothing to fail, and nothing to guard against a double
+  // dispatch — the store call is idempotent.
+  const dismissReminder = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      clearThreadReminder(scopedThreadKey(threadRef));
+    },
+    [clearThreadReminder],
+  );
+  // At most one reminder popover is open at a time, and the parent owns which
+  // — the row context menu's "Custom…" opens it from outside the row.
+  const [reminderMenuThreadKey, setReminderMenuThreadKey] = useState<string | null>(null);
+  const handleReminderMenuOpenChange = useCallback((threadRef: ScopedThreadRef, open: boolean) => {
+    const threadKey = scopedThreadKey(threadRef);
+    // A close only closes THIS row: a stale close from a row that already
+    // lost the popover must not shut the one that just opened.
+    setReminderMenuThreadKey((current) =>
+      open ? threadKey : current === threadKey ? null : current,
+    );
+  }, []);
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -2498,6 +2767,30 @@ export default function Sidebar() {
         override holds until all of them appear in canonical state. */
     readonly assignedKeys: ReadonlyMap<string, string>;
   } | null>(null);
+  const threadRemindAtById = useUiStateStore((store) => store.threadRemindAtById);
+  // Derived from the local reminder record alone, not from the thread list:
+  // the record is tiny and only changes when a reminder is set or cleared, so
+  // this stays off the path every arriving message walks. Due-ness covers
+  // every section, because a thread can settle out from under a reminder and
+  // the pill still has to show.
+  const { reminderDueKeys, nextReminderAtMs } = useMemo(() => {
+    // Real clock, not the quantized minute, for the same reason snooze uses
+    // one: the wake tick below re-runs this exactly at the due boundary.
+    void nowMinute;
+    void snoozeWakeTick;
+    const nowMs = new Date().getTime();
+    const due = new Set<string>();
+    for (const [threadKey, remindAt] of Object.entries(threadRemindAtById)) {
+      if (resolveThreadReminder({ remindAt }, nowMs) === "due") due.add(threadKey);
+    }
+    return {
+      reminderDueKeys: due,
+      nextReminderAtMs: nextPendingReminderAtMs(
+        Object.values(threadRemindAtById).map((remindAt) => ({ remindAt })),
+        nowMs,
+      ),
+    };
+  }, [nowMinute, snoozeWakeTick, threadRemindAtById]);
   const {
     pinnedThreads,
     draggableThreadKeys,
@@ -2579,7 +2872,24 @@ export default function Sidebar() {
     // sort, or mixed-version fleets would render different pinned orders on
     // web and mobile from the same data.
     const sortedPinned = sortPinnedThreadsForSidebar(pinned);
-    const sortedActive = sortThreadsForSidebar(active, sidebarThreadSortOrder);
+    // Shells carry no reminder — it is client-local — so the rows the sort
+    // needs to see get the field grafted on. Reminders are rare and this
+    // costs an object per reminder, so with none set the sort is called
+    // exactly as before (nowMs omitted means "ignore reminders") and the
+    // ordering is bit-for-bit unchanged.
+    const anyReminders = Object.keys(threadRemindAtById).length > 0;
+    const activeForSort = anyReminders
+      ? active.map((thread) => {
+          const remindAt =
+            threadRemindAtById[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))];
+          return remindAt === undefined ? thread : { ...thread, remindAt };
+        })
+      : active;
+    const sortedActive = sortThreadsForSidebar(
+      activeForSort,
+      sidebarThreadSortOrder,
+      anyReminders ? Date.parse(preciseNow) : undefined,
+    );
     return {
       pinnedThreads:
         optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -2615,6 +2925,7 @@ export default function Sidebar() {
     serverConfigs,
     sidebarThreadSortOrder,
     snoozeWakeTick,
+    threadRemindAtById,
     threads,
   ]);
 
@@ -2649,11 +2960,19 @@ export default function Sidebar() {
   // moment a snooze expires instead of on the next minute tick. Sorted
   // soonest-first, so entry 0 is the boundary.
   useEffect(() => {
-    const nextWakeAtMs =
+    const nextSnoozeWakeAtMs =
       snoozedThreads.length > 0 && snoozedThreads[0]?.snoozedUntil != null
         ? Date.parse(snoozedThreads[0].snoozedUntil)
         : Number.NaN;
-    if (Number.isNaN(nextWakeAtMs)) return;
+    // The same tick serves reminders: a reminder coming due has to repaint the
+    // pill and re-run the sort at the boundary, not on the next minute. Its
+    // boundary is computed from the reminder record rather than from a row,
+    // because a reminder-only boundary has no snoozed thread to hang off.
+    const candidates = [nextSnoozeWakeAtMs, nextReminderAtMs ?? Number.NaN].filter(
+      (ms) => !Number.isNaN(ms),
+    );
+    if (candidates.length === 0) return;
+    const nextWakeAtMs = Math.min(...candidates);
     // setTimeout delays are signed 32-bit: anything larger overflows and
     // fires immediately, turning a far-future wake (event-condition snoozes
     // synced from elsewhere) into a tight re-arm loop. Clamped, the timer
@@ -2661,7 +2980,7 @@ export default function Sidebar() {
     const delayMs = Math.min(Math.max(0, nextWakeAtMs - Date.now()) + 50, 2_147_483_647);
     const id = window.setTimeout(() => bumpSnoozeWakeTick((tick) => tick + 1), delayMs);
     return () => window.clearTimeout(id);
-  }, [snoozedThreads]);
+  }, [nextReminderAtMs, snoozedThreads]);
 
   // The settled tail renders in pages: history shouldn't dominate the
   // sidebar, and the common lookups are recent. Expansion resets when the
@@ -2773,6 +3092,10 @@ export default function Sidebar() {
   // event and defeat row memoization during streaming.
   const threadByKeyRef = useRef(threadByKey);
   threadByKeyRef.current = threadByKey;
+  // Same reason as threadByKeyRef: the context menus read the current
+  // reminders at open time without rebuilding on every set or clear.
+  const threadRemindAtByIdRef = useRef(threadRemindAtById);
+  threadRemindAtByIdRef.current = threadRemindAtById;
   // handleNewThread is inherently unstable (depends on the projects list);
   // a ref keeps it out of attemptSettle's dependency array.
   const handleNewThreadRef = useRef(newThreadContext.handleNewThread);
@@ -3730,6 +4053,33 @@ export default function Sidebar() {
     },
     [attemptUnsnooze, performSnooze, timestampFormat],
   );
+  const attemptSetReminder = useCallback(
+    (threadRef: ScopedThreadRef, remindAt: string) => {
+      const threadKey = scopedThreadKey(threadRef);
+      // Captured before the write so Undo restores a replaced reminder
+      // rather than just clearing the new one.
+      const previous = useUiStateStore.getState().threadRemindAtById[threadKey] ?? null;
+      setThreadReminder(threadKey, remindAt);
+      // Unlike snooze, the row stays exactly where it is and the thread you
+      // are on stays open — so the toast is a confirmation, not the only
+      // trace of a row that vanished.
+      toastManager.add(
+        stackedThreadToast({
+          type: "success",
+          title: `Reminder set for ${reminderDescription(remindAt, timestampFormat)}`,
+          timeout: 5_000,
+          actionProps: {
+            children: "Undo",
+            onClick: () => {
+              if (previous === null) clearThreadReminder(threadKey);
+              else setThreadReminder(threadKey, previous);
+            },
+          },
+        }),
+      );
+    },
+    [clearThreadReminder, setThreadReminder, timestampFormat],
+  );
 
   const removeFromSelection = useThreadSelectionStore((s) => s.removeFromSelection);
   const handleMultiSelectContextMenu = useCallback(
@@ -3782,6 +4132,16 @@ export default function Sidebar() {
         pinnedCount: pinnedSelectedThreads.length,
       });
       const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+      // Reminders need no capability and cannot be rejected, so unlike snooze
+      // the bulk item is always offered. Clearing is offered only when
+      // something in the selection actually has one.
+      const reminderPresets = resolveReminderPresets(new Date(), timestampFormat);
+      const remindedSelectedThreads = selectedThreads.filter(
+        (thread) =>
+          threadRemindAtByIdRef.current[
+            scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))
+          ] !== undefined,
+      );
       const clicked = await settlePromise(() =>
         api.contextMenu.show(
           [
@@ -3796,6 +4156,22 @@ export default function Sidebar() {
                       id: `snooze:${preset.id}`,
                       label: `${preset.label} (${preset.whenLabel})`,
                     })),
+                  },
+                ]
+              : []),
+            {
+              id: "remind",
+              label: `Remind me (${count})`,
+              children: reminderPresets.map((preset) => ({
+                id: `remind:${preset.id}`,
+                label: `${preset.label} (${preset.whenLabel})`,
+              })),
+            },
+            ...(remindedSelectedThreads.length > 0
+              ? [
+                  {
+                    id: "clear-reminder",
+                    label: `Clear reminder (${remindedSelectedThreads.length})`,
                   },
                 ]
               : []),
@@ -3865,6 +4241,47 @@ export default function Sidebar() {
             );
           }
         }
+        return;
+      }
+      if (clicked.value?.startsWith("remind:")) {
+        const preset = reminderPresets.find(
+          (candidate) => `remind:${candidate.id}` === clicked.value,
+        );
+        if (!preset) return;
+        // Local and synchronous, so there is nothing to await and no partial
+        // outcome to report — either all of them took it or none did.
+        const previous = selectedThreads.map((thread) => {
+          const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+          return {
+            threadKey,
+            remindAt: threadRemindAtByIdRef.current[threadKey] ?? null,
+          };
+        });
+        for (const { threadKey } of previous) setThreadReminder(threadKey, preset.remindAt);
+        clearSelection();
+        toastManager.add(
+          stackedThreadToast({
+            type: "success",
+            title: `Reminder set on ${count} thread${count === 1 ? "" : "s"} for ${reminderDescription(preset.remindAt, timestampFormat)}`,
+            timeout: 5_000,
+            actionProps: {
+              children: "Undo",
+              onClick: () => {
+                for (const { threadKey, remindAt } of previous) {
+                  if (remindAt === null) clearThreadReminder(threadKey);
+                  else setThreadReminder(threadKey, remindAt);
+                }
+              },
+            },
+          }),
+        );
+        return;
+      }
+      if (clicked.value === "clear-reminder") {
+        for (const thread of remindedSelectedThreads) {
+          clearThreadReminder(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
+        }
+        clearSelection();
         return;
       }
       if (clicked.value === "unpin") {
@@ -3965,12 +4382,14 @@ export default function Sidebar() {
       attemptSnooze,
       attemptUnpin,
       clearSelection,
+      clearThreadReminder,
       confirmThreadDelete,
       deleteThread,
       markThreadUnread,
       performSnooze,
       removeFromSelection,
       serverConfigs,
+      setThreadReminder,
       attemptUnsnooze,
       updateThreadMetadata,
       timestampFormat,
@@ -4013,6 +4432,8 @@ export default function Sidebar() {
         const isPinned = thread.pinnedAt != null;
         // Presets resolve at menu-open time (same as the popover).
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
+        const reminderPresets = resolveReminderPresets(new Date(), timestampFormat);
+        const hasReminder = threadRemindAtByIdRef.current[threadKey] !== undefined;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
@@ -4031,6 +4452,8 @@ export default function Sidebar() {
                 titleRegeneration: supportsTitleRegeneration,
               },
               snoozePresets,
+              reminderPresets,
+              hasReminder,
             }),
             position,
           ),
@@ -4041,6 +4464,13 @@ export default function Sidebar() {
             (candidate) => `snooze:${candidate.id}` === clicked.value,
           );
           if (preset) attemptSnooze(threadRef, preset);
+          return;
+        }
+        if (clicked.value?.startsWith("remind:")) {
+          const preset = reminderPresets.find(
+            (candidate) => `remind:${candidate.id}` === clicked.value,
+          );
+          if (preset) attemptSetReminder(threadRef, preset.remindAt);
           return;
         }
         switch (clicked.value) {
@@ -4086,6 +4516,14 @@ export default function Sidebar() {
             return;
           case "unsnooze":
             attemptUnsnooze(threadRef);
+            return;
+          case "remind-custom":
+            // The native menu cannot host the minutes field, so this hands
+            // off to the row's popover.
+            setReminderMenuThreadKey(threadKey);
+            return;
+          case "clear-reminder":
+            dismissReminder(threadRef);
             return;
           case "pin":
             attemptPin(threadRef);
@@ -4202,6 +4640,7 @@ export default function Sidebar() {
       archiveThread,
       attemptPin,
       attemptSettle,
+      attemptSetReminder,
       attemptSnooze,
       attemptUnpin,
       attemptUnsettle,
@@ -4212,6 +4651,7 @@ export default function Sidebar() {
       copyPathToClipboard,
       copyThreadIdToClipboard,
       deleteThread,
+      dismissReminder,
       handleMultiSelectContextMenu,
       markThreadUnread,
       openProjectSettings,
@@ -4731,6 +5171,8 @@ export default function Sidebar() {
                             // the wake signal must survive the trip. Still-snoozed
                             // rows resolve to null on their own.
                             wokeAt={threadWokeAt(thread, { now: snoozeNow })}
+                            remindAt={threadRemindAtById[threadKey] ?? null}
+                            isReminderDue={reminderDueKeys.has(threadKey)}
                             isActive={routeThreadKey === threadKey}
                             openPullRequestsInRightPanel={routeThreadRef !== null}
                             jumpLabel={
@@ -4772,6 +5214,10 @@ export default function Sidebar() {
                             onUnsnooze={attemptUnsnooze}
                             onUnpin={attemptUnpin}
                             onAcknowledgeWoke={acknowledgeWoke}
+                            onSetReminder={attemptSetReminder}
+                            onDismissReminder={dismissReminder}
+                            reminderMenuOpen={reminderMenuThreadKey === threadKey}
+                            onReminderMenuOpenChange={handleReminderMenuOpenChange}
                             onFileDropThreads={handleThreadFileDrop}
                           />
                         );

@@ -40,7 +40,8 @@ Choose how the sidebar orders active threads in Settings under General, with
 The three time-based modes ignore any manual arrangement while they are
 selected; switching back to **Manual** restores it. Pinned threads keep their
 own order above the list, and snoozed and settled threads keep their own
-ordering regardless of this setting.
+ordering regardless of this setting. A thread whose reminder has come due leads
+the active list in every mode until you open it.
 
 ## Pin and reorder threads
 
@@ -112,6 +113,27 @@ are closed. Changes apply to connected environments that support shared settings
 offline environments and older servers keep their previous values. If connected
 environments disagree, **Apply to all** copies your current settings to those named
 in the warning. Changing a rule does not reopen already settled threads.
+
+## Set a reminder
+
+To be nudged about a thread later, choose **Remind me** from its menu and pick one
+of the preset times, or **Custom…** to enter any number of minutes. The reminder
+button also appears on the thread's row when you hover over it. Unlike snoozing,
+this leaves the thread exactly where it is.
+
+When the reminder comes due, the thread shows a **Reminder** pill and floats to the
+top of the active list — ahead of every other thread, whichever sorting mode you
+use. Opening the thread dismisses the reminder, or you can click the pill. Choose
+**Clear reminder** from the menu to cancel one early.
+
+Reminders also arrive as system notifications. Turn them on with **Reminder came
+due** in **Settings → Notifications**, which needs notifications enabled. Nothing
+appears while you are already looking at that thread; the notification arrives when
+you move away.
+
+A reminder survives closing the app: one that came due while you were away fires
+the next time you open T3 Code, however late. Reminders are stored on the device
+where you set them, so one set on your desktop does not appear on your phone.
 
 ## Link a pull request
 

@@ -199,6 +199,10 @@
       "types": "./src/state/subagentRuntime.ts",
       "default": "./src/state/subagentRuntime.ts"
     },
+    "./state/thread-reminder": {
+      "types": "./src/state/threadReminder.ts",
+      "default": "./src/state/threadReminder.ts"
+    },
     "./state/thread-sort": {
       "types": "./src/state/threadSort.ts",
       "default": "./src/state/threadSort.ts"

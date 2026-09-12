@@ -759,3 +759,39 @@ describe("ServerSettings environment icon", () => {
     expect(encodeServerSettings(linuxSettings).environmentIcon).toBe("linux");
   });
 });
+
+describe("ClientSettings notifications", () => {
+  // A settings file written before a toggle existed still has a
+  // `notifications` object, so the parent's decoding default never applies and
+  // every new field has to tolerate being absent. Getting this wrong makes the
+  // whole settings blob undecodable and the app comes up inert.
+  it("decodes a notifications block written before reminders existed", () => {
+    const settings = decodeClientSettings({
+      notifications: {
+        enabled: true,
+        turnComplete: true,
+        approvalRequired: true,
+        inputRequested: true,
+        turnFailed: true,
+        sound: true,
+      },
+    });
+    expect(settings.notifications.reminders).toBe(true);
+    expect(settings.notifications.enabled).toBe(true);
+  });
+
+  it("keeps an explicit reminders choice", () => {
+    const settings = decodeClientSettings({
+      notifications: {
+        enabled: true,
+        turnComplete: true,
+        approvalRequired: true,
+        inputRequested: true,
+        turnFailed: true,
+        reminders: false,
+        sound: true,
+      },
+    });
+    expect(settings.notifications.reminders).toBe(false);
+  });
+});

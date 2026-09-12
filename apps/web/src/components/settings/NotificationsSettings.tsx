@@ -26,7 +26,7 @@ import { searchableSetting } from "./settingsSearch";
 const EVENT_ROWS: ReadonlyArray<{
   readonly key: keyof Pick<
     NotificationSettings,
-    "turnComplete" | "approvalRequired" | "inputRequested" | "turnFailed"
+    "turnComplete" | "approvalRequired" | "inputRequested" | "turnFailed" | "reminders"
   >;
   readonly title: string;
   readonly description: string;
@@ -50,6 +50,11 @@ const EVENT_ROWS: ReadonlyArray<{
     key: "turnFailed",
     title: "Failed",
     description: "A turn ended in an error.",
+  },
+  {
+    key: "reminders",
+    title: "Reminder came due",
+    description: "A reminder you set on a thread has come due.",
   },
 ];
 

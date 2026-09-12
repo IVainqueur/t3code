@@ -14,7 +14,9 @@ import {
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
   setSidebarProjectScopeKey,
+  clearThreadReminder,
   setThreadChangedFilesExpanded,
+  setThreadReminder,
   type UiState,
 } from "./uiStateStore";
 
@@ -24,6 +26,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectOrder: [],
     sidebarProjectScopeKey: null,
     threadLastVisitedAtById: {},
+    threadRemindAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
@@ -200,6 +203,7 @@ describe("parsePersistedState", () => {
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
+      threadRemindAtById: {},
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
       pullRequestMergeMethod: "merge",
@@ -322,6 +326,7 @@ describe("uiStateStore persistence", () => {
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
+      threadRemindAtById: {},
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
       threadChangedFilesExpansionVersion: 2,
@@ -361,5 +366,42 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(resolveProjectExpanded(persisted.projectExpandedById ?? {}, ["unknown"])).toBe(true);
+  });
+});
+
+describe("thread reminders", () => {
+  it("stores a reminder against the thread key", () => {
+    const next = setThreadReminder(makeUiState(), "env-1:thread-1", "2026-09-10T12:30:00.000Z");
+    expect(next.threadRemindAtById["env-1:thread-1"]).toBe("2026-09-10T12:30:00.000Z");
+  });
+
+  it("replaces an existing reminder rather than keeping both", () => {
+    const first = setThreadReminder(makeUiState(), "env-1:thread-1", "2026-09-10T12:30:00.000Z");
+    const second = setThreadReminder(first, "env-1:thread-1", "2026-09-10T13:00:00.000Z");
+    expect(second.threadRemindAtById["env-1:thread-1"]).toBe("2026-09-10T13:00:00.000Z");
+    expect(Object.keys(second.threadRemindAtById)).toHaveLength(1);
+  });
+
+  it("ignores an unparseable reminder time", () => {
+    const base = makeUiState();
+    expect(setThreadReminder(base, "env-1:thread-1", "nonsense")).toBe(base);
+  });
+
+  it("clears a reminder by removing the key, not nulling it", () => {
+    const set = setThreadReminder(makeUiState(), "env-1:thread-1", "2026-09-10T12:30:00.000Z");
+    const cleared = clearThreadReminder(set, "env-1:thread-1");
+    expect("env-1:thread-1" in cleared.threadRemindAtById).toBe(false);
+  });
+
+  it("leaves state untouched when clearing a thread that has no reminder", () => {
+    const base = makeUiState();
+    expect(clearThreadReminder(base, "env-1:thread-1")).toBe(base);
+  });
+
+  it("does not disturb other threads' reminders", () => {
+    const a = setThreadReminder(makeUiState(), "env-1:a", "2026-09-10T12:30:00.000Z");
+    const b = setThreadReminder(a, "env-1:b", "2026-09-10T12:45:00.000Z");
+    const cleared = clearThreadReminder(b, "env-1:a");
+    expect(cleared.threadRemindAtById).toEqual({ "env-1:b": "2026-09-10T12:45:00.000Z" });
   });
 });

@@ -107,3 +107,52 @@ describe("buildThreadActionMenuItems", () => {
     expect(archiveItem?.disabled).toBe(true);
   });
 });
+
+describe("reminder menu items", () => {
+  const reminderPresets = [
+    {
+      id: "5",
+      minutes: 5,
+      label: "In 5 minutes",
+      whenLabel: "12:05",
+      remindAt: "2026-09-10T12:05:00.000Z",
+    },
+    {
+      id: "15",
+      minutes: 15,
+      label: "In 15 minutes",
+      whenLabel: "12:15",
+      remindAt: "2026-09-10T12:15:00.000Z",
+    },
+  ];
+
+  it("offers a reminder submenu with one entry per preset plus a custom option", () => {
+    const flat = allIds({ ...baseState, reminderPresets });
+    expect(flat).toContain("remind");
+    expect(flat).toContain("remind:5");
+    expect(flat).toContain("remind:15");
+    expect(flat).toContain("remind-custom");
+  });
+
+  it("offers clearing instead of setting once a reminder exists", () => {
+    const flat = allIds({ ...baseState, reminderPresets, hasReminder: true });
+    expect(flat).toContain("clear-reminder");
+    expect(flat).not.toContain("remind:5");
+  });
+
+  it("omits the custom option for surfaces that cannot host the minutes field", () => {
+    const flat = allIds({ ...baseState, reminderPresets, supportsCustomReminder: false });
+    expect(flat).toContain("remind:5");
+    expect(flat).not.toContain("remind-custom");
+  });
+
+  it("omits reminders entirely when no presets are supplied", () => {
+    const flat = allIds({ ...baseState, reminderPresets: [] });
+    expect(flat).not.toContain("remind");
+    expect(flat).not.toContain("clear-reminder");
+  });
+
+  it("leaves the existing menu untouched for callers that never pass reminders", () => {
+    expect(allIds(baseState)).not.toContain("remind");
+  });
+});

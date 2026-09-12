@@ -1498,6 +1498,7 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [routeKind, routeThreadRef, routeThreadState]);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
+  const clearThreadReminder = useUiStateStore((store) => store.clearThreadReminder);
   const settings = useEnvironmentSettings(environmentId);
   const primaryServerSettings = useAtomValue(primaryServerSettingsAtom);
   const setStickyComposerModelSelection = useComposerDraftStore(
@@ -5451,6 +5452,14 @@ export default function ChatView(props: ChatViewProps) {
     );
     return () => window.clearTimeout(id);
   }, [activeThreadShell?.snoozedUntil, activeThreadSnoozed, snoozeWakeTick]);
+  // Opening a thread IS the dismissal of its reminder. Deliberately keyed on
+  // the thread key alone: a reminder SET while already sitting on this thread
+  // is not an open event and must survive, coming due with the pill showing
+  // and the notification arriving once you navigate away.
+  useEffect(() => {
+    if (activeThreadKey === null) return;
+    clearThreadReminder(activeThreadKey);
+  }, [activeThreadKey, clearThreadReminder]);
   const acknowledgeActiveThreadWoke = useCallback(() => {
     if (activeThreadRef === null || activeThreadWokeAt === null) return;
     markThreadVisited(scopedThreadKey(activeThreadRef), activeThreadWokeAt);

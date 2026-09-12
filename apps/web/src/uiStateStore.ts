@@ -23,6 +23,7 @@ export interface PersistedUiState {
   projectExpandedById?: Record<string, boolean>;
   projectOrder?: string[];
   threadLastVisitedAtById?: Record<string, string>;
+  threadRemindAtById?: Record<string, string>;
   collapsedProjectCwds?: string[];
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
@@ -44,6 +45,9 @@ export interface UiProjectState {
 
 export interface UiThreadState {
   threadLastVisitedAtById: Record<string, string>;
+  /** Per-thread reminder times, keyed by scopedThreadKey. Local like
+      threadLastVisitedAtById: durable across restarts, not synced. */
+  threadRemindAtById: Record<string, string>;
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
 }
 
@@ -63,6 +67,7 @@ const initialState: UiState = {
   projectOrder: [],
   sidebarProjectScopeKey: null,
   threadLastVisitedAtById: {},
+  threadRemindAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
@@ -149,6 +154,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     projectExpandedById,
     projectOrder,
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
+    threadRemindAtById: sanitizeTimestampRecord(parsed.threadRemindAtById),
     threadChangedFilesExpandedById:
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
@@ -227,6 +233,7 @@ export function persistState(state: UiState): void {
         projectExpandedById,
         projectOrder: state.projectOrder,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
+        threadRemindAtById: state.threadRemindAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKey: state.sidebarProjectScopeKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
@@ -246,6 +253,27 @@ export function persistState(state: UiState): void {
 }
 
 const debouncedPersistState = new Debouncer(persistState, { wait: 500 });
+
+/**
+ * A reminder is one durable timestamp; everything else about the feature is
+ * derived from it. An unparseable time is dropped rather than stored, so a
+ * corrupt entry can never pin a row to the top of the sidebar.
+ */
+export function setThreadReminder(state: UiState, threadId: string, remindAt: string): UiState {
+  if (!Number.isFinite(Date.parse(remindAt))) return state;
+  if (state.threadRemindAtById[threadId] === remindAt) return state;
+  return {
+    ...state,
+    threadRemindAtById: { ...state.threadRemindAtById, [threadId]: remindAt },
+  };
+}
+
+/** Removes the key rather than nulling it, so the persisted record stays clean. */
+export function clearThreadReminder(state: UiState, threadId: string): UiState {
+  if (!(threadId in state.threadRemindAtById)) return state;
+  const { [threadId]: _removed, ...rest } = state.threadRemindAtById;
+  return { ...state, threadRemindAtById: rest };
+}
 
 export function markThreadVisited(state: UiState, threadId: string, visitedAt: string): UiState {
   const visitedAtMs = Date.parse(visitedAt);
@@ -425,6 +453,8 @@ export function reorderProjects(
 
 interface UiStateStore extends UiState {
   markThreadVisited: (threadId: string, visitedAt: string) => void;
+  setThreadReminder: (threadId: string, remindAt: string) => void;
+  clearThreadReminder: (threadId: string) => void;
   markThreadUnread: (threadId: string, latestTurnCompletedAt: string | null | undefined) => void;
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
@@ -442,6 +472,9 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   ...readPersistedState(),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
+  setThreadReminder: (threadId, remindAt) =>
+    set((state) => setThreadReminder(state, threadId, remindAt)),
+  clearThreadReminder: (threadId) => set((state) => clearThreadReminder(state, threadId)),
   markThreadUnread: (threadId, latestTurnCompletedAt) =>
     set((state) => markThreadUnread(state, threadId, latestTurnCompletedAt)),
   setThreadChangedFilesExpanded: (threadId, turnId, expanded) =>

@@ -3,6 +3,8 @@ import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/c
 import * as Arr from "effect/Array";
 import * as Order from "effect/Order";
 
+import { resolveThreadReminder } from "./threadReminder.ts";
+
 export interface ThreadSortInput {
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -345,7 +347,12 @@ export function sortPinnedThreadsByOrderKey<
 }
 
 /** New and reopened threads lead the active list. Arranged threads follow
-    their saved keys; activity leaves both groups in place. */
+    their saved keys; activity leaves both groups in place.
+
+    A thread whose reminder has come due outranks every other group, in every
+    mode including "manual". That is the one place activity is allowed to
+    disturb an arrangement: the user asked to be interrupted at this moment,
+    and the override clears itself as soon as they open the thread. */
 export function sortActiveThreadsByOrderKey<
   T extends {
     readonly id: string;
@@ -356,8 +363,27 @@ export function sortActiveThreadsByOrderKey<
     readonly updatedAt?: string | undefined;
     readonly latestUserMessageAt?: string | null | undefined;
     readonly messages?: ReadonlyArray<{ readonly createdAt: string; readonly role: string }>;
+    readonly remindAt?: string | null | undefined;
+    readonly lastVisitedAt?: string | null | undefined;
   },
->(threads: readonly T[], sortOrder: SidebarThreadSortOrder = "manual"): T[] {
+>(
+  threads: readonly T[],
+  sortOrder: SidebarThreadSortOrder = "manual",
+  // Explicit rather than defaulted to Date.now(): this package reads time
+  // through Effect's Clock, and omitting it means "do not consider reminders"
+  // so existing callers keep their exact ordering.
+  nowMs?: number,
+): T[] {
+  // Tier first, then the mode's own ordering inside each tier.
+  const reminderTier =
+    nowMs === undefined
+      ? () => 0
+      : (thread: T) => (resolveThreadReminder(thread, nowMs) === "due" ? 0 : 1);
+  const withReminderTier =
+    (compare: (left: T, right: T) => number) =>
+    (left: T, right: T): number =>
+      reminderTier(left) - reminderTier(right) || compare(left, right);
+
   if (sortOrder !== "manual") {
     // Time-based modes ignore activeOrderKey outright rather than blending it
     // in. The keys are fractional positions, so a partial blend would order
@@ -375,30 +401,34 @@ export function sortActiveThreadsByOrderKey<
         sortOrder,
       );
     return [...threads].sort(
-      (left, right) =>
-        anchorOf(right) - anchorOf(left) ||
-        left.id.localeCompare(right.id) ||
-        (left.environmentId ?? "").localeCompare(right.environmentId ?? ""),
+      withReminderTier(
+        (left, right) =>
+          anchorOf(right) - anchorOf(left) ||
+          left.id.localeCompare(right.id) ||
+          (left.environmentId ?? "").localeCompare(right.environmentId ?? ""),
+      ),
     );
   }
 
-  return [...threads].sort((left, right) => {
-    const leftKey = left.activeOrderKey;
-    const rightKey = right.activeOrderKey;
-    if (leftKey == null && rightKey != null) return -1;
-    if (leftKey != null && rightKey == null) return 1;
-    let order = 0;
-    if (leftKey != null && rightKey != null) {
-      order = leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
-    } else {
-      order = activeThreadAnchorTimestampMs(right) - activeThreadAnchorTimestampMs(left);
-    }
-    return (
-      order ||
-      left.id.localeCompare(right.id) ||
-      (left.environmentId ?? "").localeCompare(right.environmentId ?? "")
-    );
-  });
+  return [...threads].sort(
+    withReminderTier((left, right) => {
+      const leftKey = left.activeOrderKey;
+      const rightKey = right.activeOrderKey;
+      if (leftKey == null && rightKey != null) return -1;
+      if (leftKey != null && rightKey == null) return 1;
+      let order = 0;
+      if (leftKey != null && rightKey != null) {
+        order = leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+      } else {
+        order = activeThreadAnchorTimestampMs(right) - activeThreadAnchorTimestampMs(left);
+      }
+      return (
+        order ||
+        left.id.localeCompare(right.id) ||
+        (left.environmentId ?? "").localeCompare(right.environmentId ?? "")
+      );
+    }),
+  );
 }
 
 /**

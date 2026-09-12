@@ -498,3 +498,92 @@ describe("sortThreads with last_activity", () => {
     ]);
   });
 });
+
+describe("sortActiveThreadsByOrderKey with due reminders", () => {
+  const NOW = Date.parse("2026-09-10T12:00:00.000Z");
+  const row = (input: {
+    id: string;
+    createdAt: string;
+    activeOrderKey?: string | null;
+    remindAt?: string | null;
+    lastVisitedAt?: string | null;
+  }) => ({
+    id: input.id,
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt,
+    latestUserMessageAt: input.createdAt,
+    activeOrderKey: input.activeOrderKey ?? null,
+    remindAt: input.remindAt ?? null,
+    lastVisitedAt: input.lastVisitedAt ?? null,
+    messages: [],
+  });
+
+  it("floats a due reminder above a manual arrangement", () => {
+    const arranged = row({
+      id: "arranged-first",
+      createdAt: "2026-09-10T08:00:00.000Z",
+      activeOrderKey: "b",
+    });
+    const reminded = row({
+      id: "reminded",
+      createdAt: "2026-09-10T07:00:00.000Z",
+      activeOrderKey: "z",
+      remindAt: "2026-09-10T11:30:00.000Z",
+    });
+
+    expect(
+      sortActiveThreadsByOrderKey([arranged, reminded], "manual", NOW).map((t) => t.id),
+    ).toEqual(["reminded", "arranged-first"]);
+  });
+
+  it("floats a due reminder above a time-based ordering too", () => {
+    const recent = row({ id: "recent", createdAt: "2026-09-10T11:55:00.000Z" });
+    const reminded = row({
+      id: "reminded",
+      createdAt: "2026-09-09T08:00:00.000Z",
+      remindAt: "2026-09-10T11:30:00.000Z",
+    });
+
+    expect(
+      sortActiveThreadsByOrderKey([recent, reminded], "updated_at", NOW).map((t) => t.id),
+    ).toEqual(["reminded", "recent"]);
+  });
+
+  it("leaves a pending reminder in its normal position", () => {
+    const arranged = row({
+      id: "arranged-first",
+      createdAt: "2026-09-10T08:00:00.000Z",
+      activeOrderKey: "b",
+    });
+    const pending = row({
+      id: "pending",
+      createdAt: "2026-09-10T07:00:00.000Z",
+      activeOrderKey: "z",
+      remindAt: "2026-09-10T12:30:00.000Z",
+    });
+
+    expect(
+      sortActiveThreadsByOrderKey([pending, arranged], "manual", NOW).map((t) => t.id),
+    ).toEqual(["arranged-first", "pending"]);
+  });
+
+  it("does not float a reminder the user has already seen", () => {
+    const arranged = row({
+      id: "arranged-first",
+      createdAt: "2026-09-10T08:00:00.000Z",
+      activeOrderKey: "b",
+    });
+    const seen = row({
+      id: "seen",
+      createdAt: "2026-09-10T07:00:00.000Z",
+      activeOrderKey: "z",
+      remindAt: "2026-09-10T11:00:00.000Z",
+      lastVisitedAt: "2026-09-10T11:45:00.000Z",
+    });
+
+    expect(sortActiveThreadsByOrderKey([seen, arranged], "manual", NOW).map((t) => t.id)).toEqual([
+      "arranged-first",
+      "seen",
+    ]);
+  });
+});

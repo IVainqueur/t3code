@@ -62,6 +62,11 @@ export const NotificationSettingsSchema = Schema.Struct({
   inputRequested: Schema.Boolean,
   /** The turn ended in an error. */
   turnFailed: Schema.Boolean,
+  /** A reminder the user set on a thread has come due. Carries its own
+      decoding default: the parent's default only covers an absent
+      `notifications` key, so a settings file written before this toggle
+      existed has the object but not the field. */
+  reminders: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   sound: Schema.Boolean,
 });
 export type NotificationSettings = typeof NotificationSettingsSchema.Type;
@@ -74,6 +79,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   approvalRequired: true,
   inputRequested: true,
   turnFailed: true,
+  reminders: true,
   sound: true,
 };
 
