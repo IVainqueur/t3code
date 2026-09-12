@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
-import { WindowThreadRegistry } from "./WindowThreadRegistry";
+import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
+
+import { WindowThreadRegistry } from "./WindowThreadRegistry.js";
 
 describe("WindowThreadRegistry", () => {
   it("assigns a thread to a window and reports it in the snapshot", () => {
@@ -55,7 +57,7 @@ describe("WindowThreadRegistry", () => {
     registry.createWindow("win-1");
     registry.assignThread("env-1:thread-1", "win-1");
     expect(listener).toHaveBeenCalledTimes(2);
-    expect(listener.mock.calls[1][0].ownerByThreadKey["env-1:thread-1"]).toBe("win-1");
+    expect(listener.mock.calls[1]![0].ownerByThreadKey["env-1:thread-1"]).toBe("win-1");
 
     unsubscribe();
     registry.releaseWindow("win-1");
