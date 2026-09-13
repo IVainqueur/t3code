@@ -329,6 +329,11 @@ export function useNewThreadHandler() {
             draftId: emptyStoredDraftThread.draftId,
             threadId: emptyStoredDraftThread.threadId,
           };
+          // Reusing a draft is still "the user asked this window for a new
+          // thread", so the resulting thread joins this window exactly as a
+          // freshly minted one does. The remap above already pointed the
+          // draft at projectRef, so that is the environment it lands in.
+          joinCreatingWindow(projectRef.environmentId, emptyStoredDraftThread.threadId);
           // Re-read the route: the snapshot from before the await is stale
           // once a concurrent invocation's navigation lands, and navigating
           // again would push a duplicate history entry.
@@ -372,6 +377,7 @@ export function useNewThreadHandler() {
           interactionMode: latestActiveDraftThread.interactionMode,
           ...pickExplicitWorkspaceOptions(options),
         });
+        joinCreatingWindow(projectRef.environmentId, latestActiveDraftThread.threadId);
         return Promise.resolve({
           draftId: currentRouteTarget.draftId,
           threadId: latestActiveDraftThread.threadId,

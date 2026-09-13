@@ -23,10 +23,19 @@ const testState = vi.hoisted(() => {
       router.state.location.href = `/draft/${request.params.draftId}`;
     }),
   };
+  let routeTarget: { readonly kind: "draft"; readonly draftId: string } | null = null;
+  let draftSession: {
+    readonly logicalProjectKey: string;
+    readonly promotedTo: null;
+    readonly threadId: string;
+    readonly createdAt: string;
+    readonly runtimeMode: string;
+    readonly interactionMode: string | null;
+  } | null = null;
   const draftStore = {
     getComposerDraft: vi.fn(() => ({})),
     getDraftSessionByLogicalProjectKey: vi.fn(() => storedDraft),
-    getDraftSession: vi.fn(() => null),
+    getDraftSession: vi.fn(() => draftSession),
     getDraftThread: vi.fn(() => null),
     applyStickyState: vi.fn(),
     setDraftThreadContext: vi.fn(),
@@ -47,6 +56,8 @@ const testState = vi.hoisted(() => {
     ) {
       storedDraft = nextStoredDraft;
       windowRegistryState = nextWindowRegistryState ?? { isDesktop: false, myWindowId: null };
+      routeTarget = null;
+      draftSession = null;
       router.state.location.href = "/";
       router.navigate.mockClear();
       draftStore.setLogicalProjectDraftThreadId.mockClear();
@@ -60,6 +71,15 @@ const testState = vi.hoisted(() => {
     // "raced draft" branch in useNewThreadHandler.
     setStoredDraft(nextStoredDraft: typeof storedDraft) {
       storedDraft = nextStoredDraft;
+    },
+    // Puts the user on an empty draft route for this same logical project —
+    // the "reuse the draft I'm already looking at" branch.
+    openDraftRoute(draftId: string, nextDraftSession: NonNullable<typeof draftSession>) {
+      routeTarget = { kind: "draft", draftId };
+      draftSession = nextDraftSession;
+    },
+    get routeTarget() {
+      return routeTarget;
     },
     router,
     get windowRegistryState() {
@@ -161,7 +181,7 @@ vi.mock("../state/server", () => ({
   environmentServerConfigsAtom: {},
   primaryServerSettingsAtom: "primary-settings",
 }));
-vi.mock("../threadRoutes", () => ({ resolveThreadRouteTarget: () => null }));
+vi.mock("../threadRoutes", () => ({ resolveThreadRouteTarget: () => testState.routeTarget }));
 vi.mock("../uiStateStore", () => ({
   legacyProjectCwdPreferenceKey: () => "remote-project",
   useUiStateStore: () => [],
@@ -264,6 +284,54 @@ describe("useNewThreadHandler", () => {
     expect(result).toEqual({ draftId: "draft-winner", threadId: "thread-winner" });
     expect(testState.addThreadToWindow).toHaveBeenCalledWith(
       "environment-ssh:thread-winner",
+      "window-2",
+    );
+  });
+
+  it("adds a reused empty stored draft's thread to the secondary window that asked", async () => {
+    testState.reset(
+      {
+        draftId: "draft-existing",
+        environmentId: "environment-ssh",
+        promotedTo: null,
+        threadId: "thread-existing",
+      },
+      { isDesktop: true, myWindowId: "window-2" },
+    );
+    const openThread = useNewThreadHandler();
+    const pendingOpen = openThread({
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never);
+    testState.completeProjectFileRead(null);
+    const result = await pendingOpen;
+
+    expect(result).toEqual({ draftId: "draft-existing", threadId: "thread-existing" });
+    expect(testState.addThreadToWindow).toHaveBeenCalledWith(
+      "environment-ssh:thread-existing",
+      "window-2",
+    );
+  });
+
+  it("adds a reused active draft's thread to the secondary window that asked", async () => {
+    testState.reset(null, { isDesktop: true, myWindowId: "window-2" });
+    testState.openDraftRoute("draft-open", {
+      logicalProjectKey: "remote-project",
+      promotedTo: null,
+      threadId: "thread-open",
+      createdAt: "2026-09-13T00:00:00.000Z",
+      runtimeMode: "default",
+      interactionMode: null,
+    });
+    const openThread = useNewThreadHandler();
+    const result = await openThread({
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never);
+
+    expect(result).toEqual({ draftId: "draft-open", threadId: "thread-open" });
+    expect(testState.addThreadToWindow).toHaveBeenCalledWith(
+      "environment-ssh:thread-open",
       "window-2",
     );
   });
