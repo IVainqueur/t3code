@@ -2625,21 +2625,56 @@ describe("filterSidebarThreadsForWindow", () => {
 describe("resolveDisplacedThreadNavigation", () => {
   const owner = (entries: Record<string, string>) => new Map(Object.entries(entries));
 
-  it("leaves the main window and non-desktop clients where they are", () => {
-    const ownerByThreadKey = owner({ "local:thread-1": "secondary-window-1" });
+  it("leaves non-desktop clients where they are", () => {
     expect(
       resolveDisplacedThreadNavigation({
-        ownerByThreadKey,
+        ownerByThreadKey: owner({ "local:thread-1": "secondary-window-1" }),
+        myWindowId: null,
+        myThreadKeys: new Set(),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toBeNull();
+  });
+
+  it("sends the main window to the landing route when its thread moves to a secondary window", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-1": "secondary-window-1" }),
+        myWindowId: "main",
+        myThreadKeys: new Set(),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toEqual({ kind: "landing" });
+  });
+
+  it("never picks a replacement thread for the main window, even one main explicitly owns", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-1": "secondary-window-1" }),
+        myWindowId: "main",
+        myThreadKeys: new Set(["local:thread-2"]),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toEqual({ kind: "landing" });
+  });
+
+  it("keeps the main window on a thread nobody owns", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-2": "secondary-window-1" }),
         myWindowId: "main",
         myThreadKeys: new Set(),
         routedThreadKey: "local:thread-1",
       }),
     ).toBeNull();
+  });
+
+  it("keeps the main window on a thread main itself owns", () => {
     expect(
       resolveDisplacedThreadNavigation({
-        ownerByThreadKey,
-        myWindowId: null,
-        myThreadKeys: new Set(),
+        ownerByThreadKey: owner({ "local:thread-1": "main" }),
+        myWindowId: "main",
+        myThreadKeys: new Set(["local:thread-1"]),
         routedThreadKey: "local:thread-1",
       }),
     ).toBeNull();

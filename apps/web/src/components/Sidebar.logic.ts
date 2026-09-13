@@ -688,15 +688,23 @@ export type DisplacedThreadNavigation =
   | { readonly kind: "landing" };
 
 /**
- * Where a secondary window must navigate when the thread its content pane is
- * showing gets reassigned to a different window out from under it. The
- * sidebar already drops the row (filterSidebarThreadsForWindow), so without
- * this the pane would keep rendering a thread this window no longer owns.
+ * Where a window must navigate when the thread its content pane is showing
+ * gets reassigned to a different window out from under it. The sidebar
+ * already drops the row (filterSidebarThreadsForWindow) or marks it owned
+ * elsewhere, so without this the pane would keep rendering a thread this
+ * window no longer owns.
  *
  * "No longer mine" reuses resolveThreadWindowRedirect: only a thread now
  * owned by ANOTHER window displaces the route. A thread with no owner yet —
  * a thread this window just created, before its assignment round-trips —
- * stays put, and the main window never redirects at all.
+ * stays put.
+ *
+ * The fallback differs by window. A secondary window renders exactly
+ * myThreadKeys, so the next thread in that bounded set is a sensible landing
+ * spot. The main window's myThreadKeys is only its explicit assignments, not
+ * the (much larger, unavailable here) set of threads it implicitly shows, so
+ * guessing a replacement from it would be wrong; main goes to the landing
+ * route and picks from the full list there.
  */
 export function resolveDisplacedThreadNavigation(input: {
   readonly ownerByThreadKey: ReadonlyMap<string, string>;
@@ -705,10 +713,11 @@ export function resolveDisplacedThreadNavigation(input: {
   readonly routedThreadKey: string | null;
 }): DisplacedThreadNavigation | null {
   const { myThreadKeys, myWindowId, ownerByThreadKey, routedThreadKey } = input;
-  if (myWindowId === null || myWindowId === "main" || routedThreadKey === null) return null;
+  if (myWindowId === null || routedThreadKey === null) return null;
   if (resolveThreadWindowRedirect(ownerByThreadKey, myWindowId, routedThreadKey) === null) {
     return null;
   }
+  if (myWindowId === "main") return { kind: "landing" };
   for (const threadKey of myThreadKeys) {
     if (threadKey !== routedThreadKey) return { kind: "thread", threadKey };
   }

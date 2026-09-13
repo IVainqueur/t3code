@@ -181,8 +181,8 @@ function ChatRouteGlobalShortcuts() {
 }
 
 /**
- * Keeps a secondary window's content pane honest: when the thread it is
- * displaying is handed to another window, the sidebar row disappears but the
+ * Keeps every window's content pane honest: when the thread it is displaying
+ * is handed to another window, the sidebar stops offering the row but the
  * route does not, so the pane would keep rendering a thread this window no
  * longer owns. The decision itself lives in Sidebar.logic so it reads the
  * same ownership rules the sidebar does.
