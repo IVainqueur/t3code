@@ -112,18 +112,45 @@ function SidebarUtilityItem({
   icon,
   label,
   onClick,
+  accent,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
+  /**
+   * Marks this item as something the user should notice, not just a plain
+   * utility action. Reuses the same treatment as the update-available pill
+   * right next to this menu (a surfaced background instead of the muted
+   * default, plus a small static corner dot) rather than inventing a new
+   * "pay attention to me" language for the sidebar.
+   */
+  accent?: boolean;
 }) {
   return (
     <SidebarMenuItem className="shrink-0">
       <Tooltip>
         <TooltipTrigger
           render={
-            <SidebarMenuButton aria-label={label} onClick={onClick} size="icon">
-              {icon}
+            <SidebarMenuButton
+              aria-label={label}
+              onClick={onClick}
+              size="icon"
+              className={cn(
+                accent &&
+                  "bg-sidebar-control-surface text-sidebar-foreground hover:bg-sidebar-row-hover",
+              )}
+            >
+              {accent ? (
+                <span className="relative grid place-items-center">
+                  {icon}
+                  <span
+                    aria-hidden="true"
+                    className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current ring-2 ring-sidebar-control-surface"
+                  />
+                </span>
+              ) : (
+                icon
+              )}
             </SidebarMenuButton>
           }
         />
@@ -229,6 +256,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           icon={<AppWindowIcon />}
           label="This is a secondary window. Focus the main window."
           onClick={handleFocusMainWindowClick}
+          accent
         />
       ) : null}
       <SidebarUpdatePill />
