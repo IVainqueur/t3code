@@ -52,6 +52,7 @@ import {
   CircleCheckIcon,
   CircleDashedIcon,
   ClockIcon,
+  ExternalLinkIcon,
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
@@ -81,6 +82,7 @@ import {
 import { useParams, useRouter } from "@tanstack/react-router";
 
 import { useRightPanelStore } from "../rightPanelStore";
+import { focusWindowForThread, useWindowRegistry } from "../lib/windowRegistryClient";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -157,6 +159,7 @@ import {
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
+  filterSidebarThreadsForWindow,
   formatWorkingDurationLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
@@ -170,6 +173,7 @@ import {
   resolveSidebarDropVerb,
   type SidebarDropVerb,
   resolveSidebarThreadStatus,
+  resolveThreadWindowRedirect,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldRecedeSidebarThread,
@@ -1102,6 +1106,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // rows. The marker can unpin the thread when the server supports pinning.
   pinningSupported: boolean;
   isPinned: boolean;
+  // Set when a different desktop window currently owns this thread. Clicking
+  // the row redirects there instead of navigating locally (handled by the
+  // parent's onThreadClick); this only controls the row's own indicator.
+  isOwnedElsewhere: boolean;
   // Present on rows whose server supports every drop outcome: dnd-kit
   // sortable bag applied to the row root so the whole row drags (the
   // pointer sensor's distance constraint keeps plain clicks working).
@@ -1777,6 +1785,26 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       />
     )
   ) : null;
+  // Owned-elsewhere threads redirect clicks to the window that has them
+  // open; this is the only visible cue for that, so it renders even while
+  // the pin marker or other status hues are also present.
+  const ownedElsewhereIndicator = props.isOwnedElsewhere ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            role="img"
+            aria-label="Open in another window"
+            data-testid={`sidebar-owned-elsewhere-indicator-${thread.id}`}
+            className="inline-flex shrink-0 items-center"
+          />
+        }
+      >
+        <ExternalLinkIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/65" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">Open in another window</TooltipPopup>
+    </Tooltip>
+  ) : null;
 
   if (variant === "slim") {
     return (
@@ -1821,6 +1849,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {draftIndicator}
             {title}
             {pinIndicator}
+            {ownedElsewhereIndicator}
             {terminalStatusIcon}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
@@ -1986,6 +2015,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 <span className="flex-1" />
               )}
               {pinIndicator}
+              {ownedElsewhereIndicator}
               {/* The visible state owns this slot's width: status at rest,
                   actions on hover/keyboard focus or while the popover is open. Keeping
                   the hidden state out of flow lets the project label reclaim
@@ -2373,6 +2403,7 @@ export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const windowRegistry = useWindowRegistry();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2806,11 +2837,19 @@ export default function Sidebar() {
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
+    const scopedVisible = threads.filter(
       (thread) =>
         thread.archivedAt === null &&
         (scopedProjectKeys === null ||
           scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+    );
+    // Secondary desktop windows only ever show the threads assigned to them;
+    // the main window and non-desktop clients see everything, as before.
+    const visible = filterSidebarThreadsForWindow(
+      scopedVisible,
+      (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      windowRegistry.myWindowId,
+      windowRegistry.myThreadKeys,
     );
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
@@ -2927,6 +2966,7 @@ export default function Sidebar() {
     snoozeWakeTick,
     threadRemindAtById,
     threads,
+    windowRegistry,
   ]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
@@ -3317,9 +3357,18 @@ export default function Sidebar() {
       if (isTrailingDoubleClick(event.detail)) {
         return;
       }
+      const redirectWindowId = resolveThreadWindowRedirect(
+        windowRegistry.ownerByThreadKey,
+        windowRegistry.myWindowId,
+        threadKey,
+      );
+      if (redirectWindowId !== null) {
+        void focusWindowForThread(threadKey);
+        return;
+      }
       navigateToThread(threadRef);
     },
-    [navigateToThread, rangeSelectTo, toggleThreadSelection],
+    [navigateToThread, rangeSelectTo, toggleThreadSelection, windowRegistry],
   );
 
   // A settle per thread at a time: double clicks and repeated menu picks
@@ -5150,6 +5199,13 @@ export default function Sidebar() {
                                 .threadPinning === true
                             }
                             isPinned={thread.pinnedAt != null}
+                            isOwnedElsewhere={
+                              resolveThreadWindowRedirect(
+                                windowRegistry.ownerByThreadKey,
+                                windowRegistry.myWindowId,
+                                threadKey,
+                              ) !== null
+                            }
                             sortable={sortable}
                             dropVerb={
                               dragState?.activeKey === threadKey

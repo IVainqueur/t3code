@@ -636,6 +636,39 @@ export function isTrailingDoubleClick(detail: number): boolean {
   return detail > 1;
 }
 
+/**
+ * A thread whose owning window differs from ours redirects clicks there
+ * instead of navigating locally. Returns the window id to focus, or null
+ * when the thread is unowned or already owned by this window (so the main
+ * window's own clicks, and clicks inside the window that actually owns the
+ * thread, both fall through to normal navigation).
+ */
+export function resolveThreadWindowRedirect(
+  ownerByThreadKey: ReadonlyMap<string, string>,
+  myWindowId: string | null,
+  threadKey: string,
+): string | null {
+  const owner = ownerByThreadKey.get(threadKey);
+  if (owner === undefined || owner === myWindowId) return null;
+  return owner;
+}
+
+/**
+ * Secondary windows (myWindowId set and not "main") only ever render the
+ * threads assigned to them. The main window, and any non-desktop client
+ * (myWindowId null), render every thread as before — one shared filter
+ * applied uniformly regardless of which section a thread lives in.
+ */
+export function filterSidebarThreadsForWindow<T>(
+  threads: readonly T[],
+  keyOf: (thread: T) => string,
+  myWindowId: string | null,
+  myThreadKeys: ReadonlySet<string>,
+): readonly T[] {
+  if (myWindowId === null || myWindowId === "main") return threads;
+  return threads.filter((thread) => myThreadKeys.has(keyOf(thread)));
+}
+
 function nodeClosest(node: object | null, selector: string): unknown {
   if (node === null || !("closest" in node) || typeof node.closest !== "function") return null;
   return node.closest(selector);

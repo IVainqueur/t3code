@@ -12,6 +12,8 @@ import {
   createThreadJumpHintVisibilityController,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
+  filterSidebarThreadsForWindow,
+  resolveThreadWindowRedirect,
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
   reduceSidebarProjectScopeMenuState,
@@ -2558,5 +2560,48 @@ describe("resolveSidebarDropVerb", () => {
     expect(resolveSidebarDropVerb("pinned", "pinned")).toBeNull();
     expect(resolveSidebarDropVerb("active", null)).toBeNull();
     expect(resolveSidebarDropVerb("active", "snoozed")).toBeNull();
+  });
+});
+
+describe("resolveThreadWindowRedirect", () => {
+  it("redirects to the owner when it is not this window", () => {
+    const ownerByThreadKey = new Map([["local:thread-1", "secondary-window-1"]]);
+    expect(resolveThreadWindowRedirect(ownerByThreadKey, "main", "local:thread-1")).toBe(
+      "secondary-window-1",
+    );
+    expect(resolveThreadWindowRedirect(ownerByThreadKey, null, "local:thread-1")).toBe(
+      "secondary-window-1",
+    );
+  });
+
+  it("stays null for unowned threads", () => {
+    const ownerByThreadKey = new Map<string, string>();
+    expect(resolveThreadWindowRedirect(ownerByThreadKey, "main", "local:thread-1")).toBeNull();
+  });
+
+  it("stays null when this window already owns the thread", () => {
+    const ownerByThreadKey = new Map([["local:thread-1", "secondary-window-1"]]);
+    expect(
+      resolveThreadWindowRedirect(ownerByThreadKey, "secondary-window-1", "local:thread-1"),
+    ).toBeNull();
+  });
+});
+
+describe("filterSidebarThreadsForWindow", () => {
+  const keyOf = (thread: { key: string }) => thread.key;
+  const threads = [{ key: "a" }, { key: "b" }, { key: "c" }];
+
+  it("passes every thread through for the main window and non-desktop clients", () => {
+    expect(filterSidebarThreadsForWindow(threads, keyOf, "main", new Set(["a"]))).toBe(threads);
+    expect(filterSidebarThreadsForWindow(threads, keyOf, null, new Set(["a"]))).toBe(threads);
+  });
+
+  it("filters to only this secondary window's assigned threads", () => {
+    expect(
+      filterSidebarThreadsForWindow(threads, keyOf, "secondary-window-1", new Set(["a", "c"])),
+    ).toEqual([{ key: "a" }, { key: "c" }]);
+    expect(filterSidebarThreadsForWindow(threads, keyOf, "secondary-window-1", new Set())).toEqual(
+      [],
+    );
   });
 });
