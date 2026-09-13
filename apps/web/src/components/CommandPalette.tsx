@@ -2,7 +2,11 @@
 
 import { threadPullRequestLinkMode } from "@t3tools/client-runtime/thread-pull-request-compatibility";
 
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  scopeProjectRef,
+  scopeThreadRef,
+  scopedThreadKey,
+} from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
   getCloneDestinationBrowsePath,
@@ -40,8 +44,10 @@ import {
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
+  AppWindowIcon,
   ArrowLeftIcon,
   CornerLeftUpIcon,
+  ExternalLinkIcon,
   FileSearchIcon,
   FolderIcon,
   FolderPlusIcon,
@@ -107,6 +113,11 @@ import {
 } from "../rightPanelStore";
 import { getLatestThreadForProject, sortThreads } from "../lib/threadSort";
 import {
+  addThreadToWindow,
+  openThreadInNewWindow,
+  useWindowRegistry,
+} from "../lib/windowRegistryClient";
+import {
   cn,
   getLocalFileManagerName,
   isMacPlatform,
@@ -130,6 +141,7 @@ import {
   buildRootGroups,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
+  buildWindowActionItems,
   enumerateCommandPaletteItems,
   type CommandPaletteActionItem,
   type CommandPaletteOpenIntent,
@@ -608,6 +620,7 @@ function OpenCommandPaletteDialog(props: {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
   const projects = useProjects();
+  const windowRegistry = useWindowRegistry();
   const referenceThreadRef =
     pathname === "/pull-requests"
       ? environments.some(
@@ -1650,6 +1663,22 @@ function OpenCommandPaletteDialog(props: {
       });
     }
   }
+
+  actionItems.push(
+    ...buildWindowActionItems({
+      isDesktop: windowRegistry.isDesktop,
+      threadKey:
+        activeThread !== null
+          ? scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))
+          : null,
+      otherWindowIds: windowRegistry.otherWindowIds,
+      openInNewWindowIcon: <ExternalLinkIcon className={ITEM_ICON_CLASS} />,
+      addToWindowIcon: <AppWindowIcon className={ITEM_ICON_CLASS} />,
+      addToWindowAddonIcon: <AppWindowIcon className={ADDON_ICON_CLASS} />,
+      openThreadInNewWindow,
+      addThreadToWindow,
+    }),
+  );
 
   actionItems.push({
     kind: "action",

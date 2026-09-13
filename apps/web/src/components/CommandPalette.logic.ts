@@ -213,6 +213,67 @@ export function buildProjectActionItems(input: {
   }));
 }
 
+/**
+ * Desktop-only "open/add to window" actions for the active thread. Mirrors the
+ * equivalent thread context-menu actions (see threadActionMenu.logic.ts),
+ * using this file's action/submenu shape rather than that menu's `children`.
+ */
+export function buildWindowActionItems(input: {
+  isDesktop: boolean;
+  threadKey: string | null;
+  otherWindowIds: ReadonlyArray<string>;
+  openInNewWindowIcon: ReactNode;
+  addToWindowIcon: ReactNode;
+  addToWindowAddonIcon: ReactNode;
+  openThreadInNewWindow: (threadKey: string) => Promise<void>;
+  addThreadToWindow: (threadKey: string, windowId: string) => Promise<void>;
+}): Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> {
+  if (!input.isDesktop || input.threadKey === null) return [];
+  const threadKey = input.threadKey;
+
+  const items: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [
+    {
+      kind: "action",
+      value: "action:open-thread-in-new-window",
+      searchTerms: ["window", "detach", "pop out", "new window"],
+      title: "Open Thread in New Window",
+      icon: input.openInNewWindowIcon,
+      run: async () => {
+        await input.openThreadInNewWindow(threadKey);
+      },
+    },
+  ];
+
+  if (input.otherWindowIds.length > 0) {
+    items.push({
+      kind: "submenu",
+      value: "action:add-thread-to-window",
+      searchTerms: ["window", "add to window", "move to window"],
+      title: "Add to Window",
+      icon: input.addToWindowIcon,
+      addonIcon: input.addToWindowAddonIcon,
+      groups: [
+        {
+          value: "windows",
+          label: "Windows",
+          items: input.otherWindowIds.map((windowId, index) => ({
+            kind: "action" as const,
+            value: `action:add-thread-to-window:${windowId}`,
+            searchTerms: [`window ${index + 1}`],
+            title: `Window ${index + 1}`,
+            icon: input.addToWindowIcon,
+            run: async () => {
+              await input.addThreadToWindow(threadKey, windowId);
+            },
+          })),
+        },
+      ],
+    });
+  }
+
+  return items;
+}
+
 export type BuildThreadActionItemsThread = Pick<
   SidebarThreadSummary,
   | "archivedAt"
