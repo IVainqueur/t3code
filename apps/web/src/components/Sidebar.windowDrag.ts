@@ -18,11 +18,6 @@
     in-app thread drag from an OS file drag or a text selection. */
 export const THREAD_WINDOW_DRAG_TYPE = "application/x-t3code-thread-key";
 
-// Mirrors the main process's `MAIN_WINDOW_ID`. Threads live in the main
-// window by default, so it is never a drop destination — "add to window"
-// only ever means a secondary window.
-const MAIN_WINDOW_ID = "main";
-
 export interface ThreadWindowDragTransfer {
   readonly types: ReadonlyArray<string>;
   setData(format: string, data: string): void;
@@ -88,6 +83,23 @@ export interface ThreadWindowDragHandlers {
 }
 
 /**
+ * Watches for the user abandoning the drag, and returns the unsubscribe.
+ * Injectable so a test can press Escape at an exact point in the gesture.
+ */
+export type SubscribeToDragCancel = (onCancel: () => void) => () => void;
+
+// Capture phase: nothing else in the app gets to swallow the Escape that
+// decides whether this gesture counts.
+const subscribeToEscape: SubscribeToDragCancel = (onCancel) => {
+  if (typeof document === "undefined") return () => {};
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") onCancel();
+  };
+  document.addEventListener("keydown", onKeyDown, { capture: true });
+  return () => document.removeEventListener("keydown", onKeyDown, { capture: true });
+};
+
+/**
  * Drag props for a sidebar thread row. `null` off the desktop, so a web row
  * carries no `draggable` attribute at all. Every row variant that can start a
  * drag gets the same object: a thread must behave identically whether it was
@@ -97,12 +109,20 @@ export function makeThreadWindowDragHandlers(input: {
   isDesktop: boolean;
   threadKey: string;
   host: ThreadWindowDragHost;
+  subscribeToCancel?: SubscribeToDragCancel;
 }): ThreadWindowDragHandlers | null {
   if (!input.isDesktop) return null;
+  const subscribeToCancel = input.subscribeToCancel ?? subscribeToEscape;
   // Only a drag this row actually tagged may report a release point. Without
   // the flag, an untagged drag that merely happened to end on the row (a
   // rejected file drop, an aborted sort) would detach the thread.
   let tagged = false;
+  let cancelled = false;
+  let stopWatchingForCancel: (() => void) | null = null;
+  const releaseCancelWatch = () => {
+    stopWatchingForCancel?.();
+    stopWatchingForCancel = null;
+  };
   return {
     draggable: true,
     onDragStart(event) {
@@ -114,13 +134,26 @@ export function makeThreadWindowDragHandlers(input: {
         return;
       }
       tagged = true;
+      cancelled = false;
+      releaseCancelWatch();
+      stopWatchingForCancel = subscribeToCancel(() => {
+        cancelled = true;
+      });
       event.dataTransfer.setData(THREAD_WINDOW_DRAG_TYPE, input.threadKey);
       // Naming any other effect makes the browser cancel the drop outright.
       event.dataTransfer.effectAllowed = "move";
     },
     onDragEnd(event) {
+      releaseCancelWatch();
       if (!tagged) return;
       tagged = false;
+      // Escape looks identical to a release over empty desktop — same
+      // "none" effect, same last-known pointer position — so an abandoned
+      // drag has to be remembered here or cancelling would detach the thread.
+      if (cancelled) {
+        cancelled = false;
+        return;
+      }
       // A drop target that took the thread reports its effect here. Anything
       // else — empty desktop, a window with no sidebar under the pointer, or
       // an OS that lost the payload in transit — reads as "none" and falls
@@ -141,10 +174,12 @@ export interface SidebarWindowDropHandlers {
 }
 
 /**
- * Drop props for a secondary window's sidebar, so a thread dragged out of
- * another window can be taken in here. `null` wherever a drop would be
- * meaningless: on web, before this window's id has loaded, and in the main
- * window, which owns every thread it is not explicitly given away.
+ * Drop props for any desktop window's sidebar, so a thread dragged out of
+ * another window can be taken in here. The main window takes drops too: it is
+ * how a detached thread comes home, and a window that quietly refuses the drag
+ * would paint the OS "no drop" cursor over a gesture that succeeds anyway.
+ * `null` only where a drop is meaningless — on web, and before this window's
+ * id has loaded.
  */
 export function makeSidebarWindowDropHandlers(input: {
   isDesktop: boolean;
@@ -152,7 +187,7 @@ export function makeSidebarWindowDropHandlers(input: {
   host: SidebarWindowDropHost;
 }): SidebarWindowDropHandlers | null {
   const { myWindowId } = input;
-  if (!input.isDesktop || myWindowId === null || myWindowId === MAIN_WINDOW_ID) return null;
+  if (!input.isDesktop || myWindowId === null) return null;
   // Leave every other drag alone: the sidebar's file-drop handlers and the
   // composer mention drop both share these elements.
   const claim = (event: ThreadWindowDropEvent): boolean => {

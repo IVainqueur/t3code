@@ -81,6 +81,30 @@ describe("isThreadWindowDragStart", () => {
   });
 });
 
+/** Stands in for the document keydown subscription, so a test can press
+    Escape at an exact point in the gesture. */
+function escapeKey() {
+  let press: (() => void) | null = null;
+  const unsubscribe = vi.fn();
+  return {
+    unsubscribe,
+    get subscribed() {
+      return press !== null;
+    },
+    press: () => {
+      if (press === null) throw new Error("nothing is listening for Escape");
+      press();
+    },
+    subscribeToCancel: (onCancel: () => void) => {
+      press = onCancel;
+      return () => {
+        press = null;
+        unsubscribe();
+      };
+    },
+  };
+}
+
 describe("makeThreadWindowDragHandlers", () => {
   const host = () => ({ onDroppedOutsideWindow: vi.fn() });
 
@@ -192,6 +216,66 @@ describe("makeThreadWindowDragHandlers", () => {
     expect(dragHost.onDroppedOutsideWindow).toHaveBeenCalledTimes(1);
   });
 
+  it("reports nothing when the drag was cancelled with Escape", () => {
+    // Chromium reports dropEffect "none" for an Escape-cancelled drag exactly
+    // as it does for a release over empty desktop, so without the latch a
+    // cancel would spawn a window the user just said they did not want.
+    const dragHost = host();
+    const escape = escapeKey();
+    const handlers = makeThreadWindowDragHandlers({
+      isDesktop: true,
+      threadKey: "env-1:thread-1",
+      host: dragHost,
+      subscribeToCancel: escape.subscribeToCancel,
+    })!;
+
+    handlers.onDragStart(dragStartEvent({ altKey: true }));
+    escape.press();
+    handlers.onDragEnd(dragEndEvent({ dropEffect: "none", screenX: 900, screenY: 400 }));
+
+    expect(dragHost.onDroppedOutsideWindow).not.toHaveBeenCalled();
+  });
+
+  it("releases the Escape subscription and forgets the cancel once the drag ends", () => {
+    const dragHost = host();
+    const escape = escapeKey();
+    const handlers = makeThreadWindowDragHandlers({
+      isDesktop: true,
+      threadKey: "env-1:thread-1",
+      host: dragHost,
+      subscribeToCancel: escape.subscribeToCancel,
+    })!;
+
+    handlers.onDragStart(dragStartEvent({ altKey: true }));
+    expect(escape.subscribed).toBe(true);
+    escape.press();
+    handlers.onDragEnd(dragEndEvent({ dropEffect: "none" }));
+    expect(escape.subscribed).toBe(false);
+    expect(escape.unsubscribe).toHaveBeenCalledOnce();
+
+    // A cancelled gesture must not poison the next one.
+    handlers.onDragStart(dragStartEvent({ altKey: true }));
+    handlers.onDragEnd(dragEndEvent({ dropEffect: "none", screenX: 5, screenY: 6 }));
+    expect(dragHost.onDroppedOutsideWindow).toHaveBeenCalledExactlyOnceWith("env-1:thread-1", {
+      x: 5,
+      y: 6,
+    });
+  });
+
+  it("never listens for Escape during an unmodified drag it did not tag", () => {
+    const escape = escapeKey();
+    const handlers = makeThreadWindowDragHandlers({
+      isDesktop: true,
+      threadKey: "env-1:thread-1",
+      host: host(),
+      subscribeToCancel: escape.subscribeToCancel,
+    })!;
+
+    handlers.onDragStart(dragStartEvent({ altKey: false }));
+
+    expect(escape.subscribed).toBe(false);
+  });
+
   it("survives a drag with no dataTransfer rather than throwing mid-gesture", () => {
     const dragHost = host();
     const handlers = makeThreadWindowDragHandlers({
@@ -219,10 +303,22 @@ describe("makeSidebarWindowDropHandlers", () => {
     ).toBeNull();
   });
 
-  it("produces no drop handlers in the main window, which is never an assignment target", () => {
-    expect(
-      makeSidebarWindowDropHandlers({ isDesktop: true, myWindowId: "main", host: host() }),
-    ).toBeNull();
+  it("takes a drop in the main window, which is how a thread comes back home", () => {
+    const dropHost = host();
+    const handlers = makeSidebarWindowDropHandlers({
+      isDesktop: true,
+      myWindowId: "main",
+      host: dropHost,
+    })!;
+    const event = dropEvent("env-1:thread-1");
+
+    // The cursor has to say "yes" while hovering main, or the affordance lies
+    // about a drop that succeeds either way.
+    handlers.onDragOver(event);
+    expect(event.dataTransfer.dropEffect).toBe("move");
+
+    handlers.onDrop(event);
+    expect(dropHost.addThreadToWindow).toHaveBeenCalledWith("env-1:thread-1", "main");
   });
 
   it("produces no drop handlers before this window's id is known", () => {

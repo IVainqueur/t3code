@@ -2461,8 +2461,8 @@ export default function Sidebar() {
   const threads = useThreadShells();
   const windowRegistry = useWindowRegistry();
   // Lets a thread dragged out of another window land anywhere in this
-  // window's sidebar. Only secondary windows take drops: the main window
-  // already owns every thread nobody else was given.
+  // window's sidebar. Main takes drops too, so a detached thread has a way
+  // home and the cursor never claims a drop will fail when it will not.
   const windowDropHandlers = useMemo(
     () =>
       makeSidebarWindowDropHandlers({
