@@ -683,6 +683,38 @@ export function filterSidebarThreadsForWindow<T>(
   return threads.filter((thread) => myThreadKeys.has(keyOf(thread)));
 }
 
+export type DisplacedThreadNavigation =
+  | { readonly kind: "thread"; readonly threadKey: string }
+  | { readonly kind: "landing" };
+
+/**
+ * Where a secondary window must navigate when the thread its content pane is
+ * showing gets reassigned to a different window out from under it. The
+ * sidebar already drops the row (filterSidebarThreadsForWindow), so without
+ * this the pane would keep rendering a thread this window no longer owns.
+ *
+ * "No longer mine" reuses resolveThreadWindowRedirect: only a thread now
+ * owned by ANOTHER window displaces the route. A thread with no owner yet —
+ * a thread this window just created, before its assignment round-trips —
+ * stays put, and the main window never redirects at all.
+ */
+export function resolveDisplacedThreadNavigation(input: {
+  readonly ownerByThreadKey: ReadonlyMap<string, string>;
+  readonly myWindowId: string | null;
+  readonly myThreadKeys: ReadonlySet<string>;
+  readonly routedThreadKey: string | null;
+}): DisplacedThreadNavigation | null {
+  const { myThreadKeys, myWindowId, ownerByThreadKey, routedThreadKey } = input;
+  if (myWindowId === null || myWindowId === "main" || routedThreadKey === null) return null;
+  if (resolveThreadWindowRedirect(ownerByThreadKey, myWindowId, routedThreadKey) === null) {
+    return null;
+  }
+  for (const threadKey of myThreadKeys) {
+    if (threadKey !== routedThreadKey) return { kind: "thread", threadKey };
+  }
+  return { kind: "landing" };
+}
+
 function nodeClosest(node: object | null, selector: string): unknown {
   if (node === null || !("closest" in node) || typeof node.closest !== "function") return null;
   return node.closest(selector);
