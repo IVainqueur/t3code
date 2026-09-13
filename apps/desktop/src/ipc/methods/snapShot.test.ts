@@ -312,7 +312,7 @@ describe("window capture IPC", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("forwards the accessibility permission preference from a trusted renderer", () => {
+  it.effect("forwards the accessibility permission preference from an app window", () => {
     let includeAccessibility: boolean | undefined;
     const webContents = { id: 7 };
     const layer = Layer.mergeAll(
@@ -352,7 +352,7 @@ describe("window capture IPC", () => {
     ),
   );
 
-  it.effect("allows capture setup only from the trusted main renderer", () => {
+  it.effect("allows capture setup only from a renderer this app created", () => {
     const actions: string[] = [];
     return Effect.gen(function* () {
       yield* setupSnapShot.handler("install-extension", { sender: { id: 7 } });

@@ -31,6 +31,7 @@ import {
   getDesktopSnapShotBridge,
   type DesktopSnapShotBridge,
 } from "../../lib/desktopSnapShot";
+import { MAIN_WINDOW_ID, useWindowRegistry } from "../../lib/windowRegistryClient";
 import { readFileAsDataUrl } from "../ChatView.logic";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
@@ -194,7 +195,24 @@ export async function deliverSnapShot(
   dispatchSnapShotComposerFocus();
 }
 
+/**
+ * Every window mounts this coordinator, but exactly one of them may deliver a
+ * capture: draining attaches the image to the *draining window's* thread and
+ * acknowledges it, so a second drainer either steals the capture into the
+ * wrong thread or races the first one into a "Snapshot failed" toast. Main is
+ * the deliverer — it is also the only window the main process sends capture
+ * lifecycle events to. A secondary window gets no bridge at all, so it never
+ * lists, reads, or acknowledges anything.
+ */
+export function resolveSnapShotBridgeForWindow(
+  myWindowId: string | null,
+): DesktopSnapShotBridge | undefined {
+  if (myWindowId !== null && myWindowId !== MAIN_WINDOW_ID) return undefined;
+  return getDesktopSnapShotBridge();
+}
+
 export function SnapShotCoordinator() {
+  const { myWindowId } = useWindowRegistry();
   const {
     activeDraftThread,
     activeThread,
@@ -258,7 +276,7 @@ export function SnapShotCoordinator() {
   );
 
   const drain = useCallback(async () => {
-    const bridge = getDesktopSnapShotBridge();
+    const bridge = resolveSnapShotBridgeForWindow(myWindowId);
     if (!bridge) return;
     if (drainingRef.current) {
       rerunRequestedRef.current = true;
@@ -327,10 +345,10 @@ export function SnapShotCoordinator() {
       });
     drainingRef.current = operation;
     return operation;
-  }, [playCaptureSound, resolveCaptureTarget, routeThreadRef]);
+  }, [myWindowId, playCaptureSound, resolveCaptureTarget, routeThreadRef]);
 
   useEffect(() => {
-    const bridge = getDesktopSnapShotBridge();
+    const bridge = resolveSnapShotBridgeForWindow(myWindowId);
     if (!bridge) return;
     void drain();
     const unsubscribe = bridge.onSnapShotEvent((event) => {
@@ -388,7 +406,7 @@ export function SnapShotCoordinator() {
       }
     });
     return unsubscribe;
-  }, [animateCaptures, drain, playCaptureSound, resolveCaptureTarget, routeThreadRef]);
+  }, [animateCaptures, drain, myWindowId, playCaptureSound, resolveCaptureTarget, routeThreadRef]);
 
   useEffect(() => {
     const dismissOnBlur = () => {
