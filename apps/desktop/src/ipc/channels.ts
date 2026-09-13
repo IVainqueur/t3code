@@ -117,3 +117,7 @@ export const FOCUS_WINDOW_CHANNEL = "desktop:focus-window";
 export const THREAD_DROPPED_OUTSIDE_WINDOW_CHANNEL = "desktop:thread-dropped-outside-window";
 /** Main -> renderer: the window/thread ownership map changed. */
 export const WINDOW_REGISTRY_CHANGED_CHANNEL = "desktop:window-registry-changed";
+
+export const MAC_PERMISSION_HELPER_CHANNEL = "desktop:mac-permission-helper";
+
+export const CHECK_SYSTEM_PERMISSION_CHANNEL = "desktop:check-system-permission";

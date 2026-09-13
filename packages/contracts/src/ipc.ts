@@ -1301,6 +1301,7 @@ export interface DesktopBridge {
    * lack it, and callers no-op when it is missing.
    */
   openSystemSettings?: (pane: SystemSettingsPane) => Promise<boolean>;
+  checkSystemPermission?: (pane: SystemSettingsPane) => Promise<boolean>;
   /**
    * Show a native OS notification. Resolves false when the OS refuses.
    * Optional: older desktop builds lack it, so callers must feature-detect.
