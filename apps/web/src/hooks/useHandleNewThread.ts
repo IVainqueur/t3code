@@ -39,7 +39,7 @@ import {
 } from "../lib/chatThreadActions";
 import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";
 import { addThreadToWindow, useWindowRegistry } from "../lib/windowRegistryClient";
-import { environmentServerConfigsAtom, primaryServerSettingsAtom } from "../state/server";
+import { environmentServerConfigsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
 import { useClientSettings } from "./useSettings";
@@ -471,7 +471,6 @@ export function useNewThreadHandler() {
       environmentServerConfigs,
       getCurrentRouteTarget,
       joinCreatingWindow,
-      primaryServerSettings.newWorktreesStartFromOrigin,
       projectGroupingSettings,
       router,
     ],

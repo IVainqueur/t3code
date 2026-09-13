@@ -113,21 +113,19 @@ const testState = vi.hoisted(() => {
 });
 
 vi.mock("@effect/atom-react", () => ({
-  useAtomValue: (atom: unknown) =>
-    atom === "primary-settings"
-      ? { newWorktreesStartFromOrigin: !testState.targetSettings.newWorktreesStartFromOrigin }
-      : new Map([
-          [
-            "environment-primary",
-            {
-              settings: {
-                ...testState.targetSettings,
-                newWorktreesStartFromOrigin: !testState.targetSettings.newWorktreesStartFromOrigin,
-              },
-            },
-          ],
-          ["environment-ssh", { settings: testState.targetSettings }],
-        ]),
+  useAtomValue: () =>
+    new Map([
+      [
+        "environment-primary",
+        {
+          settings: {
+            ...testState.targetSettings,
+            newWorktreesStartFromOrigin: !testState.targetSettings.newWorktreesStartFromOrigin,
+          },
+        },
+      ],
+      ["environment-ssh", { settings: testState.targetSettings }],
+    ]),
 }));
 vi.mock("@t3tools/client-runtime/environment", () => ({
   scopedProjectKey: () => "remote-project",
@@ -212,7 +210,6 @@ vi.mock("../state/entities", () => ({
 }));
 vi.mock("../state/server", () => ({
   environmentServerConfigsAtom: {},
-  primaryServerSettingsAtom: "primary-settings",
 }));
 vi.mock("../threadRoutes", () => ({ resolveThreadRouteTarget: () => testState.routeTarget }));
 vi.mock("../uiStateStore", () => ({
