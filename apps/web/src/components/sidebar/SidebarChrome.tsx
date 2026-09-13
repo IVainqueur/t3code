@@ -79,47 +79,9 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           {pillLabel}
         </Badge>
       ) : null}
-      <SecondaryWindowPill />
     </SidebarHeader>
   );
 });
-
-/**
- * Says which window you are in, and gets you out of it. Only a secondary
- * window shows it: the main window is the one place every thread is
- * reachable, so it needs neither the label nor a way back to itself.
- */
-function SecondaryWindowPill() {
-  const { isDesktop, myWindowId } = useWindowRegistry();
-  if (!isDesktop || myWindowId === null || myWindowId === MAIN_WINDOW_ID) return null;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Badge
-            className="relative z-10 ml-1 hidden shrink-0 rounded-full px-1.5 @[15rem]/sidebar-header:inline-flex"
-            size="sm"
-            variant="secondary"
-            render={
-              <button
-                type="button"
-                aria-label="Secondary window — focus the main window"
-                onClick={() => {
-                  void focusWindow(MAIN_WINDOW_ID);
-                }}
-              >
-                <AppWindowIcon />
-                <span>Window</span>
-              </button>
-            }
-          />
-        }
-      />
-      <TooltipPopup side="bottom">This is a secondary window. Focus the main window.</TooltipPopup>
-    </Tooltip>
-  );
-}
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
   return (
@@ -175,6 +137,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
   const canGoBack = useCanGoBack();
   const { isMobile, setOpenMobile } = useSidebar();
+  const { isDesktop, myWindowId } = useWindowRegistry();
+  const isSecondaryWindow = isDesktop && myWindowId !== null && myWindowId !== MAIN_WINDOW_ID;
   const currentFooterPage = useLocation({
     select: (location) =>
       /^\/settings(?:\/|$)/.test(location.pathname)
@@ -226,6 +190,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/" });
   }, [canGoBack, closeMobileSidebar, navigate]);
 
+  const handleFocusMainWindowClick = useCallback(() => {
+    void focusWindow(MAIN_WINDOW_ID);
+  }, []);
+
   return (
     <SidebarMenu className="flex-row items-center">
       {currentFooterPage ? (
@@ -256,6 +224,13 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           />
         </>
       )}
+      {isSecondaryWindow ? (
+        <SidebarUtilityItem
+          icon={<AppWindowIcon />}
+          label="This is a secondary window. Focus the main window."
+          onClick={handleFocusMainWindowClick}
+        />
+      ) : null}
       <SidebarUpdatePill />
     </SidebarMenu>
   );
