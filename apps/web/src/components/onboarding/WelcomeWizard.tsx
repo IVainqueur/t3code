@@ -30,7 +30,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TYPOGRAPHY_ADVANCED_STORAGE_KEY } from "../../appearanceFonts";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { hasCloudPublicConfig } from "../../cloud/publicConfig";
-import { useT3ConnectAuthPrompt } from "../clerk/useT3ConnectAuthPrompt";
+import { useT4ConnectAuthPrompt } from "../clerk/useT4ConnectAuthPrompt";
 import { useCompleteOnboarding } from "../../onboarding/firstRun";
 import {
   groupOnboardingProjects,
@@ -63,7 +63,7 @@ import { getDriverOption } from "../settings/providerDriverMeta";
 import { TerminalViewport } from "../ThreadTerminalDrawer";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
 import { ClaudeAI, OpenAI } from "../Icons";
-import { T3Wordmark } from "../T3Wordmark";
+import { T4Wordmark } from "../T4Wordmark";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -189,10 +189,10 @@ export function WelcomeWizard({
         initialFocus={() => document.getElementById("onboarding-pairing-url") ?? true}
       >
         <WizardHeader
-          title="Set up T3 Code"
+          title="Set up T4 Code"
           identity={
-            <div className="flex items-baseline gap-1.5" role="img" aria-label="T3 Code">
-              <T3Wordmark className="h-4 w-auto shrink-0" aria-hidden />
+            <div className="flex items-baseline gap-1.5" role="img" aria-label="T4 Code">
+              <T4Wordmark className="h-4 w-auto shrink-0" aria-hidden />
               <span className="text-[1.4rem] font-medium tracking-tight text-muted-foreground">
                 Code
               </span>
@@ -413,7 +413,7 @@ function ConnectAccountOption({
 }) {
   const { environments } = useEnvironments();
   const { isLoaded, isSignedIn } = useAuth({ treatPendingAsSignedOut: false });
-  const { openAuthPrompt } = useT3ConnectAuthPrompt();
+  const { openAuthPrompt } = useT4ConnectAuthPrompt();
   const [expanded, setExpanded] = useState(true);
   const [discoveryReady, setDiscoveryReady] = useState(false);
   const onDiscoveryReady = useCallback(() => setDiscoveryReady(true), []);
@@ -441,7 +441,7 @@ function ConnectAccountOption({
         }
       >
         <CloudIcon className="size-4 text-muted-foreground" />
-        <span className="flex-1">T3 Connect</span>
+        <span className="flex-1">T4 Connect</span>
         <span className="text-xs text-muted-foreground">
           {!isLoaded
             ? "Loading sign-in…"
@@ -477,7 +477,7 @@ function ConnectAccountOption({
           </p>
           <CommandBlock command="npx t3 connect" className="mt-3" />
           <p className="mt-3 text-xs text-muted-foreground">
-            Keep T3 Code running. Select the computers you want to set up above.
+            Keep T4 Code running. Select the computers you want to set up above.
           </p>
         </div>
       </CollapsiblePanel>
@@ -594,7 +594,7 @@ function PairingForm({
             </p>
             <CommandBlock command="npx t3 pair" className="mt-2" />
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Start T3 Code first, or run <code className="font-mono">npx t3 serve</code>. Add{" "}
+              Start T4 Code first, or run <code className="font-mono">npx t3 serve</code>. Add{" "}
               <code className="font-mono">--tailscale</code> to use your tailnet.
             </p>
           </CollapsiblePanel>

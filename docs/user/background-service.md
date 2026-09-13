@@ -1,11 +1,11 @@
-# Running T3 Code in the background
+# Running T4 Code in the background
 
-On Linux and macOS, T3 Code can run as a service for your user so you do not need
+On Linux and macOS, T4 Code can run as a service for your user so you do not need
 to keep a terminal open.
 
 ## Manage the service
 
-Run these commands on the machine that will host T3 Code:
+Run these commands on the machine that will host T4 Code:
 
 | Task                            | Command                           |
 | ------------------------------- | --------------------------------- |
@@ -23,11 +23,11 @@ one. An older CLI refuses to replace a newer service unless you explicitly add
 
 Updating restarts the server. Finish active work first, and wait for any remote
 update already in progress. To match a remote client's version, follow
-[Updating T3 Code](./updating.md).
+[Updating T4 Code](./updating.md).
 
 ## Platform support
 
-Linux needs systemd user services. Setup enables lingering so T3 Code starts at
+Linux needs systemd user services. Setup enables lingering so T4 Code starts at
 boot and keeps running after logout. If this needs administrator permission,
 setup prints a recovery command before changing the service.
 
@@ -38,8 +38,8 @@ service is still installed and will start at the next login.
 
 Windows background services are not supported.
 
-T3 Connect can offer service installation during setup, but the two are managed
-separately. Signing out of T3 Connect does not stop or uninstall the service.
+T4 Connect can offer service installation during setup, but the two are managed
+separately. Signing out of T4 Connect does not stop or uninstall the service.
 
 ## Troubleshooting
 
@@ -61,7 +61,7 @@ ssh -t your-server 'sudo loginctl enable-linger "$(id -un)"'
 ```
 
 Then retry service setup as your normal user. Run only the `loginctl` command
-with sudo; running T3 Code as root creates a separate installation and Connect
+with sudo; running T4 Code as root creates a separate installation and Connect
 identity. Without administrator access, run `t3 serve` in a terminal and keep
 that session open.
 
@@ -69,7 +69,7 @@ that session open.
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `linger-unavailable`                    | Run `loginctl show-user "$(id -un)" --property=Linger` and check that systemd-logind is available.                             |
 | `user-manager-unavailable`              | Run `systemctl --user status` in a login session for the service user; check your distribution's systemd user-session support. |
-| `service-disabled` or `service-stopped` | Read the log and `systemctl --user status t3code.service`, then use the repair command printed by T3 Code.                     |
+| `service-disabled` or `service-stopped` | Read the log and `systemctl --user status t3code.service`, then use the repair command printed by T4 Code.                     |
 
 On macOS, check **System Settings → General → Login Items** if the service no
 longer starts at login. If agent work cannot access Desktop, Documents, or
@@ -77,5 +77,5 @@ Downloads, it may need Full Disk Access for the Node executable listed in
 `ProgramArguments` in
 `~/Library/LaunchAgents/com.t3tools.t3code.service.plist`.
 
-For failures after signing in to T3 Connect, see
-[connection troubleshooting](./remote-access.md#t3-connect-troubleshooting).
+For failures after signing in to T4 Connect, see
+[connection troubleshooting](./remote-access.md#t4-connect-troubleshooting).

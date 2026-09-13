@@ -3,7 +3,7 @@ import type { RelayClientEnvironmentRecord } from "@t3tools/contracts/relay";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { T3ConnectEnvironmentRow } from "./T3ConnectUserProfilePage";
+import { T4ConnectEnvironmentRow } from "./T4ConnectUserProfilePage";
 
 const environment: RelayClientEnvironmentRecord = {
   environmentId: "environment-1" as EnvironmentId,
@@ -24,7 +24,7 @@ function renderRow({
   readonly mutationPending?: boolean;
 } = {}) {
   return renderToStaticMarkup(
-    <T3ConnectEnvironmentRow
+    <T4ConnectEnvironmentRow
       environment={environment}
       confirmationOpen={confirmationOpen}
       mutationPending={mutationPending}
@@ -34,7 +34,7 @@ function renderRow({
   );
 }
 
-describe("T3 Connect environment row", () => {
+describe("T4 Connect environment row", () => {
   it("keeps deregistration confirmation inline and collapsed by default", () => {
     const markup = renderRow();
 

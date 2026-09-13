@@ -96,7 +96,7 @@ export function NotificationsSettingsPanel() {
     void dispatchNotification({
       intent: {
         key: `test:${Date.now()}`,
-        title: "T3 Code",
+        title: "T4 Code",
         body: "Notifications are working.",
         environmentId: "",
         threadId: "",
@@ -120,7 +120,7 @@ export function NotificationsSettingsPanel() {
             isUnsupported
               ? "This client cannot show system notifications."
               : isBlocked
-                ? "Your browser has blocked notifications for this site. Allow them in your browser's site settings, then switch this back on — T3 Code cannot re-prompt once they are denied."
+                ? "Your browser has blocked notifications for this site. Allow them in your browser's site settings, then switch this back on — T4 Code cannot re-prompt once they are denied."
                 : "Notify me when a thread needs attention. Nothing fires while you are looking at that thread in a focused window."
           }
           resetAction={
