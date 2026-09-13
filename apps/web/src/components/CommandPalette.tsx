@@ -1671,7 +1671,7 @@ function OpenCommandPaletteDialog(props: {
         activeThread !== null
           ? scopedThreadKey(scopeThreadRef(activeThread.environmentId, activeThread.id))
           : null,
-      otherWindowIds: windowRegistry.otherWindowIds,
+      otherWindows: windowRegistry.otherWindows,
       openInNewWindowIcon: <ExternalLinkIcon className={ITEM_ICON_CLASS} />,
       addToWindowIcon: <AppWindowIcon className={ITEM_ICON_CLASS} />,
       addToWindowAddonIcon: <AppWindowIcon className={ADDON_ICON_CLASS} />,

@@ -221,7 +221,7 @@ export function buildProjectActionItems(input: {
 export function buildWindowActionItems(input: {
   isDesktop: boolean;
   threadKey: string | null;
-  otherWindowIds: ReadonlyArray<string>;
+  otherWindows: ReadonlyArray<{ readonly id: string; readonly label: string }>;
   openInNewWindowIcon: ReactNode;
   addToWindowIcon: ReactNode;
   addToWindowAddonIcon: ReactNode;
@@ -244,7 +244,7 @@ export function buildWindowActionItems(input: {
     },
   ];
 
-  if (input.otherWindowIds.length > 0) {
+  if (input.otherWindows.length > 0) {
     items.push({
       kind: "submenu",
       value: "action:add-thread-to-window",
@@ -256,14 +256,14 @@ export function buildWindowActionItems(input: {
         {
           value: "windows",
           label: "Windows",
-          items: input.otherWindowIds.map((windowId, index) => ({
+          items: input.otherWindows.map((target) => ({
             kind: "action" as const,
-            value: `action:add-thread-to-window:${windowId}`,
-            searchTerms: [`window ${index + 1}`],
-            title: `Window ${index + 1}`,
+            value: `action:add-thread-to-window:${target.id}`,
+            searchTerms: [target.label],
+            title: target.label,
             icon: input.addToWindowIcon,
             run: async () => {
-              await input.addThreadToWindow(threadKey, windowId);
+              await input.addThreadToWindow(threadKey, target.id);
             },
           })),
         },

@@ -4589,10 +4589,7 @@ export default function Sidebar() {
               reminderPresets,
               hasReminder,
               isDesktop: windowRegistry.isDesktop,
-              otherWindowIds: windowRegistry.otherWindowIds.map((windowId, index) => ({
-                id: windowId,
-                label: `Window ${index + 1}`,
-              })),
+              otherWindowIds: windowRegistry.otherWindows,
             }),
             position,
           ),

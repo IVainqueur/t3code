@@ -4,6 +4,7 @@ import {
   useWindowRegistry,
   openThreadInNewWindow,
   handleThreadDroppedOutsideWindow,
+  deriveOtherWindows,
   __resetWindowRegistry,
 } from "./windowRegistryClient";
 
@@ -56,7 +57,7 @@ describe("useWindowRegistry", () => {
     await waitFor(() => expect(result.current.myWindowId).toBe("win-1"));
     expect(result.current.myThreadKeys.has("env-1:thread-1")).toBe(true);
     expect(result.current.ownerByThreadKey.get("env-1:thread-1")).toBe("win-1");
-    expect(result.current.otherWindowIds).toEqual(["main"]);
+    expect(result.current.otherWindows).toEqual([{ id: "main", label: "Main Window" }]);
   });
 
   it("updates reactively when the main process pushes a change", async () => {
@@ -97,5 +98,31 @@ describe("handleThreadDroppedOutsideWindow", () => {
     await expect(
       handleThreadDroppedOutsideWindow("env-1:thread-1", { x: 0, y: 0 }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("deriveOtherWindows", () => {
+  // Numbering is a property of the window, not of who is looking at it: the
+  // same OS window must read the same in every window's menu.
+  it("names main and numbers secondary windows by registry creation order", () => {
+    const windowIds = ["main", "win-a", "win-b", "win-c"];
+
+    expect(deriveOtherWindows(windowIds, "main")).toEqual([
+      { id: "win-a", label: "Window 1" },
+      { id: "win-b", label: "Window 2" },
+      { id: "win-c", label: "Window 3" },
+    ]);
+    expect(deriveOtherWindows(windowIds, "win-b")).toEqual([
+      { id: "main", label: "Main Window" },
+      { id: "win-a", label: "Window 1" },
+      { id: "win-c", label: "Window 3" },
+    ]);
+  });
+
+  it("lists every known window when the viewer is not in the registry", () => {
+    expect(deriveOtherWindows(["main", "win-a"], null)).toEqual([
+      { id: "main", label: "Main Window" },
+      { id: "win-a", label: "Window 1" },
+    ]);
   });
 });

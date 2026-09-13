@@ -1,11 +1,25 @@
 import { useSyncExternalStore } from "react";
 
+/** The well-known id the Electron main process gives its main window. */
+export const MAIN_WINDOW_ID = "main";
+
+export interface WindowMenuEntry {
+  readonly id: string;
+  readonly label: string;
+}
+
 export interface WindowRegistryState {
   isDesktop: boolean;
   myWindowId: string | null;
   myThreadKeys: ReadonlySet<string>;
   ownerByThreadKey: ReadonlyMap<string, string>;
-  otherWindowIds: ReadonlyArray<string>;
+  /**
+   * Every window except the one asking, already labelled for menus. Derived
+   * here so the sidebar context menu and the command palette cannot drift
+   * apart, and so a window's label means the same thing whichever window's
+   * menu it is read from.
+   */
+  otherWindows: ReadonlyArray<WindowMenuEntry>;
 }
 
 interface RawSnapshot {
@@ -18,7 +32,7 @@ const EMPTY_STATE: WindowRegistryState = {
   myWindowId: null,
   myThreadKeys: new Set(),
   ownerByThreadKey: new Map(),
-  otherWindowIds: [],
+  otherWindows: [],
 };
 
 function getBridge() {
@@ -43,13 +57,37 @@ let cachedState: WindowRegistryState = EMPTY_STATE;
 const storeListeners = new Set<() => void>();
 let unsubscribeFromChanges: (() => void) | null = null;
 
+/**
+ * Labels every known window, then drops the viewer's own. Secondary windows
+ * are numbered by their position among *all* secondary windows — the main
+ * process inserts them into the registry in creation order and
+ * `Object.keys` preserves insertion order for these non-integer-like keys —
+ * so one OS window carries the same number in every window's menu. Numbering
+ * by position in the already-filtered list would renumber the same window
+ * depending on who is looking at it.
+ */
+export function deriveOtherWindows(
+  windowIds: ReadonlyArray<string>,
+  myWindowId: string | null,
+): ReadonlyArray<WindowMenuEntry> {
+  const entries: WindowMenuEntry[] = [];
+  let secondaryCount = 0;
+  for (const id of windowIds) {
+    const label = id === MAIN_WINDOW_ID ? "Main Window" : `Window ${(secondaryCount += 1)}`;
+    if (id !== myWindowId) {
+      entries.push({ id, label });
+    }
+  }
+  return entries;
+}
+
 function toState(myWindowId: string | null, snapshot: RawSnapshot): WindowRegistryState {
   return {
     isDesktop: true,
     myWindowId,
     myThreadKeys: new Set(myWindowId ? (snapshot.windowThreadKeys[myWindowId] ?? []) : []),
     ownerByThreadKey: new Map(Object.entries(snapshot.ownerByThreadKey)),
-    otherWindowIds: Object.keys(snapshot.windowThreadKeys).filter((id) => id !== myWindowId),
+    otherWindows: deriveOtherWindows(Object.keys(snapshot.windowThreadKeys), myWindowId),
   };
 }
 
