@@ -1380,6 +1380,12 @@ export interface DesktopWindowRegistryBridge {
   /** Focuses (and restores, if minimized) the window that owns `threadKey`, if any. */
   focusWindowForThread: (threadKey: string) => Promise<void>;
   /**
+   * Focuses a window the caller can already name. Distinct from
+   * `focusWindowForThread`, which resolves the target through a thread: the
+   * "back to the main window" affordance has no thread to resolve through.
+   */
+  focusWindow: (windowId: DesktopWindowId) => Promise<void>;
+  /**
    * Completes a native cross-window drag that no drop target accepted. The
    * renderer cannot tell "released over another window" from "released over
    * empty desktop" — no `drop` event fires either way — so it reports the

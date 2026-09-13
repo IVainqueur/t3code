@@ -70,6 +70,7 @@ interface DesktopWindowRegistryBridge {
   openThreadInNewWindow(threadKey: string): Promise<void>;
   addThreadToWindow(threadKey: string, windowId: string): Promise<void>;
   focusWindowForThread(threadKey: string): Promise<void>;
+  focusWindow(windowId: string): Promise<void>;
   handleThreadDroppedOutsideWindow(
     threadKey: string,
     screenPoint: { x: number; y: number },
@@ -176,6 +177,14 @@ export async function addThreadToWindow(threadKey: string, windowId: string): Pr
 
 export async function focusWindowForThread(threadKey: string): Promise<void> {
   await getBridge()?.focusWindowForThread(threadKey);
+}
+
+/**
+ * Focuses a window by id. `focusWindowForThread` resolves its target through
+ * a thread, which the "back to the main window" affordance has none of.
+ */
+export async function focusWindow(windowId: string): Promise<void> {
+  await getBridge()?.focusWindow(windowId);
 }
 
 /**

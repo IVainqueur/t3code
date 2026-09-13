@@ -7,6 +7,7 @@ import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import { WindowThreadRegistry } from "../../window/WindowThreadRegistry.ts";
 import {
   addThreadToWindow,
+  focusWindow,
   focusWindowForThread,
   getMyWindowState,
   getSnapshot,
@@ -234,6 +235,27 @@ describe("handleThreadDroppedOutsideWindow", () => {
             bounds(DesktopWindow.MAIN_WINDOW_ID, 0, 0),
             bounds("secondary-1", 0, 0),
           ],
+          windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
+        }),
+      ),
+    );
+  });
+});
+
+describe("focusWindow", () => {
+  it.effect("focuses the window the renderer named", () => {
+    const focusWindowMock = vi.fn(() => Effect.void);
+
+    return Effect.gen(function* () {
+      yield* focusWindow.handler(DesktopWindow.MAIN_WINDOW_ID);
+      assert.deepEqual(focusWindowMock.mock.calls, [[DesktopWindow.MAIN_WINDOW_ID]]);
+    }).pipe(
+      Effect.provide(
+        Layer.mock(DesktopWindow.DesktopWindow)({
+          windowThreadRegistry: new WindowThreadRegistry(),
+          focusWindow: focusWindowMock,
+          listWindowBounds: () => [],
           windowIdForWebContents: () => undefined,
           windowForId: () => undefined,
         }),

@@ -151,6 +151,21 @@ export const handleThreadDroppedOutsideWindow = DesktopIpc.makeIpcMethod({
   }),
 });
 
+/**
+ * Focuses a window the renderer can already name, without going through a
+ * thread first — the "back to the main window" affordance a secondary window
+ * shows has no thread to resolve through.
+ */
+export const focusWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.FOCUS_WINDOW_CHANNEL,
+  payload: Schema.String,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.windowRegistry.focusWindow")(function* (windowId) {
+    const desktopWindow = yield* DesktopWindow.DesktopWindow;
+    yield* desktopWindow.focusWindow(windowId);
+  }),
+});
+
 export const focusWindowForThread = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.FOCUS_WINDOW_FOR_THREAD_CHANNEL,
   payload: Schema.String,

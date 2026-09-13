@@ -65,6 +65,7 @@ import * as PreviewIpc from "./methods/preview.ts";
 import * as AppActivationIpc from "./methods/appActivation.ts";
 import {
   addThreadToWindow,
+  focusWindow,
   focusWindowForThread,
   getMyWindowState,
   getSnapshot as getWindowRegistrySnapshot,
@@ -139,6 +140,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(getWindowRegistrySnapshot);
   yield* ipc.handle(openThreadInNewWindow);
   yield* ipc.handle(addThreadToWindow);
+  yield* ipc.handle(focusWindow);
   yield* ipc.handle(focusWindowForThread);
   yield* ipc.handle(handleThreadDroppedOutsideWindow);
   yield* ipc.handle(getUpdateState);

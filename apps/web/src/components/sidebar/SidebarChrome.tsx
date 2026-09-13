@@ -1,4 +1,5 @@
 import {
+  AppWindowIcon,
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   GitPullRequestIcon,
@@ -11,6 +12,7 @@ import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-ro
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
+import { focusWindow, MAIN_WINDOW_ID, useWindowRegistry } from "../../lib/windowRegistryClient";
 import { T3Wordmark } from "../T3Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -77,9 +79,47 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           {pillLabel}
         </Badge>
       ) : null}
+      <SecondaryWindowPill />
     </SidebarHeader>
   );
 });
+
+/**
+ * Says which window you are in, and gets you out of it. Only a secondary
+ * window shows it: the main window is the one place every thread is
+ * reachable, so it needs neither the label nor a way back to itself.
+ */
+function SecondaryWindowPill() {
+  const { isDesktop, myWindowId } = useWindowRegistry();
+  if (!isDesktop || myWindowId === null || myWindowId === MAIN_WINDOW_ID) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Badge
+            className="relative z-10 ml-1 rounded-full px-1.5"
+            size="sm"
+            variant="secondary"
+            render={
+              <button
+                type="button"
+                aria-label="Secondary window — focus the main window"
+                onClick={() => {
+                  void focusWindow(MAIN_WINDOW_ID);
+                }}
+              >
+                <AppWindowIcon />
+                <span className="hidden @[15rem]/sidebar-header:inline">Window</span>
+              </button>
+            }
+          />
+        }
+      />
+      <TooltipPopup side="bottom">This is a secondary window. Focus the main window.</TooltipPopup>
+    </Tooltip>
+  );
+}
 
 function SidebarBrand({ onBackdrop }: { onBackdrop: boolean }) {
   return (

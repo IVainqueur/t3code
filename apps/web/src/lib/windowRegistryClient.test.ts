@@ -5,6 +5,8 @@ import {
   openThreadInNewWindow,
   handleThreadDroppedOutsideWindow,
   deriveOtherWindows,
+  focusWindow,
+  MAIN_WINDOW_ID,
   resolveInitialThreadRouteHash,
   __resetWindowRegistry,
 } from "./windowRegistryClient";
@@ -25,6 +27,7 @@ function installDesktopBridge() {
       openThreadInNewWindow: vi.fn().mockResolvedValue(undefined),
       addThreadToWindow: vi.fn().mockResolvedValue(undefined),
       focusWindowForThread: vi.fn().mockResolvedValue(undefined),
+      focusWindow: vi.fn().mockResolvedValue(undefined),
       handleThreadDroppedOutsideWindow: vi.fn().mockResolvedValue(undefined),
       onChanged: vi.fn((listener: (snapshot: unknown) => void) => {
         changeListener = listener;
@@ -82,6 +85,18 @@ describe("openThreadInNewWindow", () => {
     const { bridge } = installDesktopBridge();
     await openThreadInNewWindow("env-1:thread-1");
     expect(bridge.windowRegistry.openThreadInNewWindow).toHaveBeenCalledWith("env-1:thread-1");
+  });
+});
+
+describe("focusWindow", () => {
+  it("delegates to desktopBridge.windowRegistry.focusWindow", async () => {
+    const { bridge } = installDesktopBridge();
+    await focusWindow(MAIN_WINDOW_ID);
+    expect(bridge.windowRegistry.focusWindow).toHaveBeenCalledWith("main");
+  });
+
+  it("resolves without throwing on web, where there is no desktop bridge", async () => {
+    await expect(focusWindow(MAIN_WINDOW_ID)).resolves.toBeUndefined();
   });
 });
 
