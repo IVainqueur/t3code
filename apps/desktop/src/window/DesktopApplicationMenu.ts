@@ -129,6 +129,7 @@ export const make = Effect.gen(function* () {
   };
 
   const configure = Effect.gen(function* () {
+    const desktopWindow = yield* DesktopWindow.DesktopWindow;
     const checkForUpdatesClick = () => {
       runMenuEffect("check-for-updates", handleCheckForUpdatesMenuClick);
     };
@@ -137,6 +138,9 @@ export const make = Effect.gen(function* () {
     };
     const zoomClick = (direction: DesktopWindow.MainWindowZoomDirection) => () => {
       runMenuEffect(`zoom-${direction}`, zoomMainWindow(direction));
+    };
+    const newWindowClick = () => {
+      runMenuEffect("new-window", desktopWindow.createSecondaryWindow([]));
     };
     const template: Electron.MenuItemConstructorOptions[] = [];
 
@@ -181,6 +185,11 @@ export const make = Effect.gen(function* () {
                 },
                 { type: "separator" as const },
               ]),
+          {
+            label: "New Window",
+            accelerator: "CmdOrCtrl+Shift+N",
+            click: newWindowClick,
+          },
           { role: environment.platform === "darwin" ? "close" : "quit" },
         ],
       },
