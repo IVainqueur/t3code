@@ -67,9 +67,31 @@ const environmentInput = {
   runningUnderArm64Translation: false,
 } satisfies DesktopEnvironment.MakeDesktopEnvironmentInput;
 
+type FakeListener = (...args: readonly unknown[]) => void;
+
+// A real BrowserWindow runs every listener registered for an event. Keyed
+// storage alone would silently drop all but the last one — and window
+// creation deliberately registers more than one "closed" listener.
+function addFakeListener(
+  listeners: Map<string, FakeListener>,
+  eventName: string,
+  listener: FakeListener,
+): void {
+  const existing = listeners.get(eventName);
+  listeners.set(
+    eventName,
+    existing === undefined
+      ? listener
+      : (...args) => {
+          existing(...args);
+          listener(...args);
+        },
+  );
+}
+
 function makeFakeBrowserWindow() {
-  const windowListeners = new Map<string, (...args: readonly unknown[]) => void>();
-  const webContentsListeners = new Map<string, (...args: readonly unknown[]) => void>();
+  const windowListeners = new Map<string, FakeListener>();
+  const webContentsListeners = new Map<string, FakeListener>();
   let zoomLevel = 0;
   const webContents = {
     copyImageAt: vi.fn(),
@@ -81,8 +103,8 @@ function makeFakeBrowserWindow() {
       zoomLevel = level;
     }),
     isLoadingMainFrame: vi.fn(() => false),
-    on: vi.fn((eventName: string, listener: (...args: readonly unknown[]) => void) => {
-      webContentsListeners.set(eventName, listener);
+    on: vi.fn((eventName: string, listener: FakeListener) => {
+      addFakeListener(webContentsListeners, eventName, listener);
     }),
     once: vi.fn<(eventName: string, listener: (...args: readonly unknown[]) => void) => void>(),
     openDevTools: vi.fn(),
@@ -105,11 +127,11 @@ function makeFakeBrowserWindow() {
     isVisible: vi.fn(() => true),
     loadURL: vi.fn(() => Promise.resolve()),
     maximize: vi.fn(),
-    on: vi.fn((eventName: string, listener: (...args: readonly unknown[]) => void) => {
-      windowListeners.set(eventName, listener);
+    on: vi.fn((eventName: string, listener: FakeListener) => {
+      addFakeListener(windowListeners, eventName, listener);
     }),
-    once: vi.fn((eventName: string, listener: (...args: readonly unknown[]) => void) => {
-      windowListeners.set(eventName, listener);
+    once: vi.fn((eventName: string, listener: FakeListener) => {
+      addFakeListener(windowListeners, eventName, listener);
     }),
     restore: vi.fn(),
     setBackgroundColor: vi.fn(),
@@ -1761,6 +1783,43 @@ describe("DesktopWindow", () => {
           assert.equal(secondary.maximize.mock.calls.length, 0);
           main.windowListeners.get("ready-to-show")?.();
           assert.equal(main.maximize.mock.calls.length, 1);
+        }).pipe(Effect.provide(scenario.layer));
+      }),
+    );
+
+    // Spec lifecycle table: closing main quits everything. There is no
+    // "app stays alive with only a secondary window open" state.
+    it.effect("quits the app when main closes, but not when a secondary window closes", () =>
+      Effect.gen(function* () {
+        const main = makeFakeBrowserWindow();
+        const secondary = makeFakeBrowserWindow();
+        const quitCalls: string[] = [];
+        const scenario = yield* makeSplashScenario([main.window, secondary.window], { quitCalls });
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.createMain;
+          yield* desktopWindow.createSecondaryWindow([]);
+
+          const secondaryClosed = secondary.windowListeners.get("closed");
+          const mainClosed = main.windowListeners.get("closed");
+          if (!secondaryClosed || !mainClosed) {
+            return yield* Effect.die("closed listeners were not registered");
+          }
+
+          const settle = Effect.gen(function* () {
+            for (let tick = 0; tick < 5; tick += 1) {
+              yield* Effect.promise(() => Promise.resolve());
+            }
+          });
+
+          secondaryClosed();
+          yield* settle;
+          assert.deepEqual(quitCalls, []);
+
+          mainClosed();
+          yield* settle;
+          assert.deepEqual(quitCalls, ["quit"]);
         }).pipe(Effect.provide(scenario.layer));
       }),
     );

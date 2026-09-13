@@ -917,6 +917,16 @@ export const make = Effect.gen(function* () {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
       void runPromise(electronWindow.clearMain(Option.some(window)));
+      // Closing main quits the whole app, secondary windows included
+      // (deliberately non-standard on macOS). Without this the app survives
+      // with only secondary windows open, and every "the main window"
+      // resolver silently promotes a secondary window into main's role — the
+      // one place the user is guaranteed to find every thread.
+      if (input.isMain) {
+        void runPromise(
+          logWindowInfo("main window closed; quitting").pipe(Effect.andThen(electronApp.quit)),
+        );
+      }
     });
 
     return window;
