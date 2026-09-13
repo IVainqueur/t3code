@@ -1,6 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   scopedProjectKey,
+  scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
@@ -35,6 +36,7 @@ import {
   resolveNewThreadModelSelectionOverride,
 } from "../lib/chatThreadActions";
 import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";
+import { addThreadToWindow, useWindowRegistry } from "../lib/windowRegistryClient";
 import { environmentServerConfigsAtom, primaryServerSettingsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -63,6 +65,7 @@ export function useNewThreadHandler() {
   const environmentServerConfigs = useAtomValue(environmentServerConfigsAtom);
   const primaryServerSettings = useAtomValue(primaryServerSettingsAtom);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const { myWindowId } = useWindowRegistry();
   const router = useRouter();
   const getCurrentRouteTarget = useCallback(() => {
     const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
@@ -430,12 +433,19 @@ export function useNewThreadHandler() {
           params: { draftId },
           replace: options?.replace ?? false,
         });
+        if (myWindowId && myWindowId !== "main") {
+          void addThreadToWindow(
+            scopedThreadKey(scopeThreadRef(projectRef.environmentId, threadId)),
+            myWindowId,
+          );
+        }
         return { draftId, threadId };
       })();
     },
     [
       environmentServerConfigs,
       getCurrentRouteTarget,
+      myWindowId,
       primaryServerSettings.newWorktreesStartFromOrigin,
       projectGroupingSettings,
       router,

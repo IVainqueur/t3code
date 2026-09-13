@@ -9,6 +9,11 @@ const testState = vi.hoisted(() => {
     readonly promotedTo: null;
     readonly threadId: string;
   } | null = null;
+  let windowRegistryState: {
+    readonly isDesktop: boolean;
+    readonly myWindowId: string | null;
+  } = { isDesktop: false, myWindowId: null };
+  const addThreadToWindow = vi.fn(async (_threadKey: string, _windowId: string) => undefined);
   const router = {
     state: {
       location: { href: "/" },
@@ -30,21 +35,30 @@ const testState = vi.hoisted(() => {
   };
 
   return {
+    addThreadToWindow,
     completeProjectFileRead: (value: null) => completeProjectFileRead(value),
     draftStore,
     get projectFileRead() {
       return projectFileRead;
     },
-    reset(nextStoredDraft: typeof storedDraft) {
+    reset(
+      nextStoredDraft: typeof storedDraft,
+      nextWindowRegistryState?: typeof windowRegistryState,
+    ) {
       storedDraft = nextStoredDraft;
+      windowRegistryState = nextWindowRegistryState ?? { isDesktop: false, myWindowId: null };
       router.state.location.href = "/";
       router.navigate.mockClear();
       draftStore.setLogicalProjectDraftThreadId.mockClear();
+      addThreadToWindow.mockClear();
       projectFileRead = new Promise<null>((resolve) => {
         completeProjectFileRead = resolve;
       });
     },
     router,
+    get windowRegistryState() {
+      return windowRegistryState;
+    },
   };
 });
 
@@ -69,6 +83,13 @@ vi.mock("@t3tools/client-runtime/environment", () => ({
   scopedProjectKey: () => "remote-project",
   scopeProjectRef: (environmentId: string, projectId: string) => ({ environmentId, projectId }),
   scopeThreadRef: (environmentId: string, threadId: string) => ({ environmentId, threadId }),
+  scopedThreadKey: (ref: { environmentId: string; threadId: string }) =>
+    `${ref.environmentId}:${ref.threadId}`,
+}));
+vi.mock("../lib/windowRegistryClient", () => ({
+  addThreadToWindow: (threadKey: string, windowId: string) =>
+    testState.addThreadToWindow(threadKey, windowId),
+  useWindowRegistry: () => testState.windowRegistryState,
 }));
 vi.mock("@t3tools/contracts", () => ({
   DEFAULT_RUNTIME_MODE: "default",
@@ -170,5 +191,47 @@ describe("useNewThreadHandler", () => {
     expect(testState.router.state.location.href).toBe("/usage");
     expect(testState.router.navigate).not.toHaveBeenCalled();
     expect(testState.draftStore.setLogicalProjectDraftThreadId).not.toHaveBeenCalled();
+  });
+
+  it("adds the new thread to a secondary window that created it", async () => {
+    testState.reset(null, { isDesktop: true, myWindowId: "window-2" });
+    const openThread = useNewThreadHandler();
+    const pendingOpen = openThread({
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never);
+    testState.completeProjectFileRead(null);
+    await pendingOpen;
+
+    expect(testState.addThreadToWindow).toHaveBeenCalledWith(
+      "environment-ssh:thread-delayed",
+      "window-2",
+    );
+  });
+
+  it("does not add the new thread to a window when created from the main window", async () => {
+    testState.reset(null, { isDesktop: true, myWindowId: "main" });
+    const openThread = useNewThreadHandler();
+    const pendingOpen = openThread({
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never);
+    testState.completeProjectFileRead(null);
+    await pendingOpen;
+
+    expect(testState.addThreadToWindow).not.toHaveBeenCalled();
+  });
+
+  it("does not add the new thread to a window on web/mobile (not desktop)", async () => {
+    testState.reset(null, { isDesktop: false, myWindowId: null });
+    const openThread = useNewThreadHandler();
+    const pendingOpen = openThread({
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never);
+    testState.completeProjectFileRead(null);
+    await pendingOpen;
+
+    expect(testState.addThreadToWindow).not.toHaveBeenCalled();
   });
 });
