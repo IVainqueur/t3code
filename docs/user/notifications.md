@@ -1,6 +1,6 @@
 # Notifications
 
-T3 Code can raise a system notification when a thread needs you. Notifications
+T4 Code can raise a system notification when a thread needs you. Notifications
 are off until you turn them on, and each device decides for itself — switching
 them on for your laptop does not switch them on elsewhere.
 
@@ -23,7 +23,7 @@ the thread is open in a focused window, nothing fires — you can already see
 what happened. Switch to another thread, another window, or another app and
 notifications resume.
 
-Clicking a notification brings T3 Code forward and opens the thread it came
+Clicking a notification brings T4 Code forward and opens the thread it came
 from.
 
 ## Sound
@@ -35,15 +35,15 @@ keep notifications silent while still seeing them.
 
 **Send test** raises a notification immediately. Use it after changing your
 settings: it is the only reliable way to catch a system Do Not Disturb mode, a
-focus filter, or a per-app mute, none of which T3 Code can see.
+focus filter, or a per-app mute, none of which T4 Code can see.
 
 ## If notifications do not appear
 
 In the desktop app, check your operating system's notification settings for
-T3 Code, and check whether Do Not Disturb or a focus mode is active.
+T4 Code, and check whether Do Not Disturb or a focus mode is active.
 
-In a browser, notifications need the site's permission. T3 Code asks the first
+In a browser, notifications need the site's permission. T4 Code asks the first
 time you switch them on. If you dismiss or block that prompt, the switch cannot
 be turned on again from here — allow notifications for the site in your
-browser's settings first, then switch them back on. T3 Code cannot re-ask once
+browser's settings first, then switch them back on. T4 Code cannot re-ask once
 a browser has recorded a block.

@@ -3,6 +3,7 @@ import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools
 import type { Project, Thread } from "../types";
 import {
   buildBrowseGroups,
+  buildCommandPaletteProjectMetadata,
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
@@ -52,6 +53,124 @@ describe("linked pull request thread navigation", () => {
     expect(items[0]?.description).toBe("Archived thread");
     await items[0]?.run();
     expect(runThread).toHaveBeenCalledWith({ environmentId, id });
+  });
+});
+
+describe("buildCommandPaletteProjectMetadata", () => {
+  const localEnvironmentId = EnvironmentId.make("environment-local");
+  const remoteEnvironmentId = EnvironmentId.make("environment-build-box");
+  const locations = new Map([
+    [localEnvironmentId, { kind: "local" as const, label: "Local", machine: "laptop" as const }],
+    [
+      remoteEnvironmentId,
+      { kind: "remote" as const, label: "Build box", machine: "server" as const },
+    ],
+  ]);
+
+  it("makes every member environment and path searchable", () => {
+    const metadata = buildCommandPaletteProjectMetadata({
+      projects: [
+        {
+          environmentId: localEnvironmentId,
+          title: "T4 Code",
+          workspaceRoot: "/Users/theo/Projects/t3code",
+        },
+        {
+          environmentId: remoteEnvironmentId,
+          title: "t3code",
+          workspaceRoot: "/srv/t3code",
+        },
+      ],
+      locationByEnvironmentId: locations,
+    });
+
+    expect(metadata.searchTerms).toEqual([
+      "T4 Code",
+      "/Users/theo/Projects/t3code",
+      "Local",
+      "t3code",
+      "/srv/t3code",
+      "Build box",
+    ]);
+    expect(metadata.environmentLabels).toEqual(["Local", "Build box"]);
+
+    const [filteredGroup] = filterCommandPaletteGroups({
+      activeGroups: [],
+      query: "build box",
+      isInSubmenu: false,
+      projectSearchItems: [
+        {
+          kind: "action",
+          value: "project:t3code",
+          title: "T4 Code",
+          searchTerms: metadata.searchTerms,
+          icon: null,
+          run: async () => undefined,
+        },
+      ],
+      threadSearchItems: [],
+    });
+    expect(filteredGroup?.items).toHaveLength(1);
+  });
+
+  it("deduplicates grouped checkouts by environment", () => {
+    const metadata = buildCommandPaletteProjectMetadata({
+      projects: [
+        {
+          environmentId: remoteEnvironmentId,
+          title: "T4 Code",
+          workspaceRoot: "/srv/t3code",
+        },
+        {
+          environmentId: remoteEnvironmentId,
+          title: "T4 Code worktree",
+          workspaceRoot: "/srv/t3code-feature",
+        },
+      ],
+      locationByEnvironmentId: locations,
+    });
+
+    expect(metadata.environmentLabels).toEqual(["Build box"]);
+  });
+
+  it("deduplicates distinct environments with the same label", () => {
+    const secondRemoteEnvironmentId = EnvironmentId.make("environment-build-box-2");
+    const metadata = buildCommandPaletteProjectMetadata({
+      projects: [
+        {
+          environmentId: remoteEnvironmentId,
+          title: "T4 Code",
+          workspaceRoot: "/srv/t3code",
+        },
+        {
+          environmentId: secondRemoteEnvironmentId,
+          title: "T4 Code mirror",
+          workspaceRoot: "/srv/mirror/t3code",
+        },
+      ],
+      locationByEnvironmentId: new Map([
+        [remoteEnvironmentId, { label: "Build box" }],
+        [secondRemoteEnvironmentId, { label: "Build box" }],
+      ]),
+    });
+
+    expect(metadata.environmentLabels).toEqual(["Build box"]);
+  });
+
+  it("uses a human-readable fallback when presentation data is unavailable", () => {
+    const metadata = buildCommandPaletteProjectMetadata({
+      projects: [
+        {
+          environmentId: remoteEnvironmentId,
+          title: "T4 Code",
+          workspaceRoot: "/srv/t3code",
+        },
+      ],
+      locationByEnvironmentId: new Map(),
+    });
+
+    expect(metadata.searchTerms).toContain("Remote");
+    expect(metadata.environmentLabels).toEqual(["Remote"]);
   });
 });
 
@@ -444,7 +563,7 @@ describe("buildThreadActionItems", () => {
   it("keeps message excerpts searchable without replacing thread metadata", () => {
     const [item] = buildThreadActionItems({
       threads: [makeThread({ branch: "feat/search" })],
-      projectTitleById: new Map([[PROJECT_ID, "T3 Code"]]),
+      projectTitleById: new Map([[PROJECT_ID, "T4 Code"]]),
       sortOrder: "updated_at",
       icon: null,
       getContentMatch: () => ({
@@ -461,13 +580,13 @@ describe("buildThreadActionItems", () => {
       snippet: "The relay reconnect is now bounded.",
       query: "reconnect",
     });
-    expect(item?.description).toBe("T3 Code · #feat/search");
+    expect(item?.description).toBe("T4 Code · #feat/search");
   });
 
   it("prefers renderDescription when provided", () => {
     const [item] = buildThreadActionItems({
       threads: [makeThread({ branch: "feat/search", worktreePath: "/tmp/wt" })],
-      projectTitleById: new Map([[PROJECT_ID, "T3 Code"]]),
+      projectTitleById: new Map([[PROJECT_ID, "T4 Code"]]),
       sortOrder: "updated_at",
       icon: null,
       renderDescription: (thread, { projectTitle }) =>
@@ -475,7 +594,7 @@ describe("buildThreadActionItems", () => {
       runThread: async (_thread) => undefined,
     });
 
-    expect(item?.description).toBe("T3 Code:feat/search:wt");
+    expect(item?.description).toBe("T4 Code:feat/search:wt");
   });
 
   it("filters archived threads out of thread search items", () => {

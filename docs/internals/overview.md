@@ -1,6 +1,6 @@
 # Architecture
 
-T3 Code keeps execution in the environment that owns the workspace. Web, desktop, and mobile
+T4 Code keeps execution in the environment that owns the workspace. Web, desktop, and mobile
 clients control it over authenticated RPC. A remote client must never substitute its own filesystem,
 provider credentials, or machine state for the environment's. The desktop app bundles a server,
 but its renderer follows the same boundary.
@@ -40,6 +40,15 @@ after an environment downgrade.
 Provider-specific behavior belongs behind an adapter. Orchestration works with normalized commands
 and events, so adding a provider should not require branches throughout the domain or clients.
 See [provider constraints](./providers.md).
+
+## Settings ownership
+
+Client preferences stay in the current client; environment defaults and project overrides stay
+on their owning server. The web and desktop settings target is URL state, resolved against current
+connections and project membership. An unavailable target must not fall back to another environment.
+**All environments** is an explicit bulk edit of connected, loaded servers, not a durable global
+default or a promise to synchronize offline or future environments. Project-group targets similarly
+select known environment-local checkouts; the group itself does not store inherited defaults.
 
 ## Durable intent and side effects
 

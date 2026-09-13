@@ -44,6 +44,7 @@ import { discoverGrokSkills } from "../Drivers/GrokSkills.ts";
 
 const GROK_PRESENTATION = {
   displayName: "Grok",
+  supportsConversationRollback: false,
   badgeLabel: "Early Access",
   showInteractionModeToggle: false,
 } as const;
@@ -83,7 +84,7 @@ export function buildInitialGrokProviderSnapshot(
           version: null,
           status: "warning",
           auth: { status: "unknown" },
-          message: "Grok is disabled in T3 Code settings.",
+          message: "Grok is disabled in T4 Code settings.",
         },
       });
     }
@@ -350,7 +351,7 @@ export const checkGrokProviderStatus = Effect.fn("checkGrokProviderStatus")(func
         version: null,
         status: "warning",
         auth: { status: "unknown" },
-        message: "Grok is disabled in T3 Code settings.",
+        message: "Grok is disabled in T4 Code settings.",
       },
     });
   }

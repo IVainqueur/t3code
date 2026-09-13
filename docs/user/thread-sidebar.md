@@ -10,7 +10,7 @@ and mode selections, unless the destination project has its own model default.
 Its branch and workspace mode come from your configured defaults. To continue in
 an existing worktree, use **New thread in this worktree** from the branch toolbar.
 
-When you change a new thread's project, T3 Code stays in the current environment
+When you change a new thread's project, T4 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
 ### Start in the background
@@ -52,6 +52,9 @@ the thread opens and the files are attached in its composer, ready for
 your next message. The same per-message file limits apply as when attaching
 files directly; see [Attach files](./composer.md#attach-files).
 
+On web and desktop, pinning or unpinning a thread keeps the sidebar at your current
+scroll position instead of following the thread to its new place in the list.
+
 Pinning does not prevent automatic settlement. Settling a thread removes its pin.
 
 On web and desktop, drag a thread between sections to change its state. Drag a thread up into
@@ -89,7 +92,7 @@ position, so using **Un-settle** returns it to the top. Pinning and snoozing pre
 position until you move it again. Thread activity does not change the order. The settled shelf
 continues to use settlement time.
 
-If dragging is unavailable for one environment, update the T3 Code server running in that
+If dragging is unavailable for one environment, update the T4 Code server running in that
 environment. Pinned and active reordering require server support. Threads from older servers keep
 their default order until the server is updated.
 
@@ -109,10 +112,12 @@ settlement, but an old closed or merged pull request does not settle work you
 resumed after it closed.
 
 Change these rules in **Settings → General**. They continue to run when your apps
-are closed. Changes apply to connected environments that support shared settings;
-offline environments and older servers keep their previous values. If connected
-environments disagree, **Apply to all** copies your current settings to those named
-in the warning. Changing a rule does not reopen already settled threads.
+are closed. On web and desktop, choose an environment at the top to change only
+its rules, or **All environments** to update connected environments together.
+Mixed values show where the selected environments disagree. Mobile applies these
+rules to connected environments that support shared settings. Offline environments
+and older servers keep their previous values. Changing a rule does not reopen
+already settled threads.
 
 ## Set a reminder
 
@@ -132,7 +137,7 @@ appears while you are already looking at that thread; the notification arrives w
 you move away.
 
 A reminder survives closing the app: one that came due while you were away fires
-the next time you open T3 Code, however late. Reminders are stored on the device
+the next time you open T4 Code, however late. Reminders are stored on the device
 where you set them, so one set on your desktop does not appear on your phone.
 
 ## Link a pull request
