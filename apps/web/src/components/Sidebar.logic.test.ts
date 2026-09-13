@@ -13,6 +13,7 @@ import {
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
   filterSidebarThreadsForWindow,
+  isThreadOwnedByAnotherWindow,
   resolveThreadWindowRedirect,
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
@@ -2584,6 +2585,20 @@ describe("resolveThreadWindowRedirect", () => {
     expect(
       resolveThreadWindowRedirect(ownerByThreadKey, "secondary-window-1", "local:thread-1"),
     ).toBeNull();
+  });
+});
+
+describe("isThreadOwnedByAnotherWindow", () => {
+  it("agrees with resolveThreadWindowRedirect across every entry point's inputs", () => {
+    const ownerByThreadKey = new Map([["local:thread-1", "secondary-window-1"]]);
+    // Main window looking at a thread owned by a secondary window: owned elsewhere.
+    expect(isThreadOwnedByAnotherWindow(ownerByThreadKey, "main", "local:thread-1")).toBe(true);
+    // The owning secondary window itself: not owned elsewhere.
+    expect(
+      isThreadOwnedByAnotherWindow(ownerByThreadKey, "secondary-window-1", "local:thread-1"),
+    ).toBe(false);
+    // Unowned thread: never owned elsewhere.
+    expect(isThreadOwnedByAnotherWindow(ownerByThreadKey, "main", "local:thread-2")).toBe(false);
   });
 });
 

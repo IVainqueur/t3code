@@ -172,6 +172,7 @@ import {
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
   type SidebarDropVerb,
+  isThreadOwnedByAnotherWindow,
   resolveSidebarThreadStatus,
   resolveThreadWindowRedirect,
   searchSidebarThreads,
@@ -2272,6 +2273,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   isHighlighted: boolean;
   isRouteActive: boolean;
+  isOwnedElsewhere: boolean;
   resultId: string;
   onHighlight: () => void;
   onSelect: () => void;
@@ -2376,6 +2378,14 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
             <ProjectFavicon project={props.project} className="size-4 shrink-0" />
           ) : null}
           <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+          {props.isOwnedElsewhere ? (
+            <ExternalLinkIcon
+              aria-label="Open in another window"
+              role="img"
+              data-testid={`sidebar-search-owned-elsewhere-indicator-${thread.id}`}
+              className="size-3 shrink-0 text-muted-foreground/65"
+            />
+          ) : null}
           <span className="shrink-0 text-xs text-muted-foreground/55 tabular-nums">
             {threadTimeLabel(thread)}
           </span>
@@ -3195,6 +3205,28 @@ export default function Sidebar() {
     [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
   );
 
+  // Every path that opens a thread from the sidebar (click, keyboard
+  // activation, PR badge/stack activation, search selection) must agree on
+  // this: a thread owned by another desktop window redirects there instead
+  // of navigating locally. One shared helper keeps that decision in one
+  // place rather than re-implemented (and re-forgotten) per entry point.
+  const navigateOrRedirectToThread = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      const threadKey = scopedThreadKey(threadRef);
+      const redirectWindowId = resolveThreadWindowRedirect(
+        windowRegistry.ownerByThreadKey,
+        windowRegistry.myWindowId,
+        threadKey,
+      );
+      if (redirectWindowId !== null) {
+        void focusWindowForThread(threadKey);
+        return;
+      }
+      navigateToThread(threadRef);
+    },
+    [navigateToThread, windowRegistry],
+  );
+
   // Dropping files on a row opens that thread and attaches the files there.
   // The composer only accepts drops for its OWN thread, so when the row is
   // not the open thread we stash the files and let ChatView hand them over
@@ -3259,9 +3291,9 @@ export default function Sidebar() {
   const selectThreadSearchResult = useCallback(
     (thread: EnvironmentThreadShell) => {
       clearThreadSearch();
-      navigateToThread(scopeThreadRef(thread.environmentId, thread.id));
+      navigateOrRedirectToThread(scopeThreadRef(thread.environmentId, thread.id));
     },
-    [clearThreadSearch, navigateToThread],
+    [clearThreadSearch, navigateOrRedirectToThread],
   );
   const handleThreadSearchKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -3357,18 +3389,9 @@ export default function Sidebar() {
       if (isTrailingDoubleClick(event.detail)) {
         return;
       }
-      const redirectWindowId = resolveThreadWindowRedirect(
-        windowRegistry.ownerByThreadKey,
-        windowRegistry.myWindowId,
-        threadKey,
-      );
-      if (redirectWindowId !== null) {
-        void focusWindowForThread(threadKey);
-        return;
-      }
-      navigateToThread(threadRef);
+      navigateOrRedirectToThread(threadRef);
     },
-    [navigateToThread, rangeSelectTo, toggleThreadSelection, windowRegistry],
+    [navigateOrRedirectToThread, rangeSelectTo, toggleThreadSelection],
   );
 
   // A settle per thread at a time: double clicks and repeated menu picks
@@ -5112,6 +5135,11 @@ export default function Sidebar() {
                         }
                         isHighlighted={activeSearchResultIndex === index}
                         isRouteActive={routeThreadKey === threadKey}
+                        isOwnedElsewhere={isThreadOwnedByAnotherWindow(
+                          windowRegistry.ownerByThreadKey,
+                          windowRegistry.myWindowId,
+                          threadKey,
+                        )}
                         resultId={`sidebar-thread-search-result-${index}`}
                         onHighlight={() => setActiveSearchResultIndex(index)}
                         onSelect={() => selectThreadSearchResult(thread)}
@@ -5199,13 +5227,11 @@ export default function Sidebar() {
                                 .threadPinning === true
                             }
                             isPinned={thread.pinnedAt != null}
-                            isOwnedElsewhere={
-                              resolveThreadWindowRedirect(
-                                windowRegistry.ownerByThreadKey,
-                                windowRegistry.myWindowId,
-                                threadKey,
-                              ) !== null
-                            }
+                            isOwnedElsewhere={isThreadOwnedByAnotherWindow(
+                              windowRegistry.ownerByThreadKey,
+                              windowRegistry.myWindowId,
+                              threadKey,
+                            )}
                             sortable={sortable}
                             dropVerb={
                               dragState?.activeKey === threadKey
@@ -5256,7 +5282,7 @@ export default function Sidebar() {
                             }
                             timestampFormat={timestampFormat}
                             onThreadClick={handleThreadClick}
-                            onThreadActivate={navigateToThread}
+                            onThreadActivate={navigateOrRedirectToThread}
                             onStartRename={startThreadRename}
                             onRenameTitleChange={setRenamingTitle}
                             onCommitRename={commitThreadRename}

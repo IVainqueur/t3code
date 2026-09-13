@@ -653,6 +653,20 @@ export function resolveThreadWindowRedirect(
   return owner;
 }
 
+/** Boolean sugar over resolveThreadWindowRedirect for rows that only need to
+    decide whether to show the "owned elsewhere" indicator, not which window
+    to focus. Every activation path (click, keyboard, PR badge, search
+    selection) and every indicator (sidebar row, search result row) reads off
+    this same pair of functions so a thread's owned-elsewhere status can't
+    read differently depending on which entry point asks. */
+export function isThreadOwnedByAnotherWindow(
+  ownerByThreadKey: ReadonlyMap<string, string>,
+  myWindowId: string | null,
+  threadKey: string,
+): boolean {
+  return resolveThreadWindowRedirect(ownerByThreadKey, myWindowId, threadKey) !== null;
+}
+
 /**
  * Secondary windows (myWindowId set and not "main") only ever render the
  * threads assigned to them. The main window, and any non-desktop client
