@@ -16,6 +16,29 @@ const AddThreadToWindowInput = Schema.Struct({
   windowId: Schema.String,
 });
 
+const ThreadDroppedOutsideWindowInput = Schema.Struct({
+  threadKey: Schema.String,
+  screenPoint: Schema.Struct({ x: Schema.Number, y: Schema.Number }),
+});
+
+interface ScreenRectangle {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+// Half-open on the right and bottom edges, so two windows sharing an edge
+// cannot both claim the same point.
+function boundsContain(bounds: ScreenRectangle, point: { x: number; y: number }): boolean {
+  return (
+    point.x >= bounds.x &&
+    point.x < bounds.x + bounds.width &&
+    point.y >= bounds.y &&
+    point.y < bounds.y + bounds.height
+  );
+}
+
 /**
  * Forwards every `windowThreadRegistry` change to all renderer windows, so
  * each window (main and secondary) can render "owned elsewhere" indicators
@@ -89,6 +112,42 @@ export const addThreadToWindow = DesktopIpc.makeIpcMethod({
   }) {
     const desktopWindow = yield* DesktopWindow.DesktopWindow;
     desktopWindow.windowThreadRegistry.assignThread(threadKey, windowId);
+  }),
+});
+
+/**
+ * Completes a native cross-window thread drag that no drop target accepted.
+ * The renderer reports where the pointer was released in screen space; only
+ * the main process knows the window layout, so the "was that empty desktop?"
+ * question is answered here. Over a window, the thread moves to it; over
+ * nothing, it detaches into a brand-new window at that spot.
+ */
+export const handleThreadDroppedOutsideWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.THREAD_DROPPED_OUTSIDE_WINDOW_CHANNEL,
+  payload: ThreadDroppedOutsideWindowInput,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.windowRegistry.handleThreadDroppedOutsideWindow")(function* ({
+    threadKey,
+    screenPoint,
+  }) {
+    const desktopWindow = yield* DesktopWindow.DesktopWindow;
+    const windows = desktopWindow.listWindowBounds();
+    // Newest window wins an overlap: Electron exposes no z-order, and a
+    // secondary window opened over main is the one the user can see at that
+    // point. `listWindowBounds` is in creation order, so search it backwards.
+    let target: (typeof windows)[number] | undefined;
+    for (let index = windows.length - 1; index >= 0; index -= 1) {
+      const candidate = windows[index];
+      if (candidate !== undefined && boundsContain(candidate.bounds, screenPoint)) {
+        target = candidate;
+        break;
+      }
+    }
+    if (target === undefined) {
+      yield* desktopWindow.createSecondaryWindow([threadKey]);
+      return;
+    }
+    desktopWindow.windowThreadRegistry.assignThread(threadKey, target.windowId);
   }),
 });
 

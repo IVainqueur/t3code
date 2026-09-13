@@ -98,6 +98,7 @@ const makeDesktopWindowLayer = (selectedAction: Deferred.Deferred<string>) =>
       ),
     focusWindow: () => Effect.void,
     windowThreadRegistry: new WindowThreadRegistry(),
+    listWindowBounds: () => [],
     windowIdForWebContents: () => undefined,
   } satisfies DesktopWindow.DesktopWindow["Service"]);
 

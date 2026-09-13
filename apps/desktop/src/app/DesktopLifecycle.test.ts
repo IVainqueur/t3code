@@ -102,6 +102,7 @@ function makeDesktopWindowLayer(
     createSecondaryWindow: () => Effect.die("unexpected secondary window creation"),
     focusWindow: () => Effect.void,
     windowThreadRegistry: new WindowThreadRegistry(),
+    listWindowBounds: () => [],
     windowIdForWebContents: () => undefined,
   });
 }

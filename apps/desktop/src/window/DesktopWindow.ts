@@ -146,6 +146,15 @@ export class DesktopWindow extends Context.Service<
     // a webContents that never went through `registerWindow` (e.g. already
     // closed, or a foreign/devtools contents).
     readonly windowIdForWebContents: (webContentsId: number) => WindowId | undefined;
+    // Screen-space bounds of every live registered window, in creation order.
+    // Exposed so IPC handlers can answer "which window is this screen point
+    // over?" — a native cross-window drag reports where it was released, and
+    // only the main process can map that back to a window. Destroyed windows
+    // are omitted so a caller never resolves an id `assignThread` would reject.
+    readonly listWindowBounds: () => ReadonlyArray<{
+      readonly windowId: WindowId;
+      readonly bounds: Electron.Rectangle;
+    }>;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
 
@@ -892,6 +901,15 @@ export const make = Effect.gen(function* () {
     return undefined;
   };
 
+  const listWindowBounds = () => {
+    const entries: { windowId: WindowId; bounds: Electron.Rectangle }[] = [];
+    for (const [windowId, window] of windowsById) {
+      if (window.isDestroyed()) continue;
+      entries.push({ windowId, bounds: window.getBounds() });
+    }
+    return entries;
+  };
+
   const focusWindow = Effect.fn("desktop.window.focusWindow")(function* (windowId: WindowId) {
     yield* Effect.annotateCurrentSpan({ windowId });
     const window = windowsById.get(windowId);
@@ -1077,6 +1095,7 @@ export const make = Effect.gen(function* () {
     focusWindow,
     windowThreadRegistry,
     windowIdForWebContents,
+    listWindowBounds,
   });
 });
 

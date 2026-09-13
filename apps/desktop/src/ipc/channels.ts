@@ -113,5 +113,6 @@ export const GET_WINDOW_REGISTRY_SNAPSHOT_CHANNEL = "desktop:get-window-registry
 export const OPEN_THREAD_IN_NEW_WINDOW_CHANNEL = "desktop:open-thread-in-new-window";
 export const ADD_THREAD_TO_WINDOW_CHANNEL = "desktop:add-thread-to-window";
 export const FOCUS_WINDOW_FOR_THREAD_CHANNEL = "desktop:focus-window-for-thread";
+export const THREAD_DROPPED_OUTSIDE_WINDOW_CHANNEL = "desktop:thread-dropped-outside-window";
 /** Main -> renderer: the window/thread ownership map changed. */
 export const WINDOW_REGISTRY_CHANGED_CHANNEL = "desktop:window-registry-changed";

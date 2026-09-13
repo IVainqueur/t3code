@@ -32,6 +32,10 @@ interface DesktopWindowRegistryBridge {
   openThreadInNewWindow(threadKey: string): Promise<void>;
   addThreadToWindow(threadKey: string, windowId: string): Promise<void>;
   focusWindowForThread(threadKey: string): Promise<void>;
+  handleThreadDroppedOutsideWindow(
+    threadKey: string,
+    screenPoint: { x: number; y: number },
+  ): Promise<void>;
   onChanged(listener: (snapshot: RawSnapshot) => void): () => void;
 }
 
@@ -110,4 +114,17 @@ export async function addThreadToWindow(threadKey: string, windowId: string): Pr
 
 export async function focusWindowForThread(threadKey: string): Promise<void> {
   await getBridge()?.focusWindowForThread(threadKey);
+}
+
+/**
+ * Reports where a native cross-window thread drag was released, in screen
+ * coordinates, when no drop target accepted it. Call this only for a
+ * `dragend` whose `dropEffect` is `"none"` — otherwise a drop target has
+ * already moved the thread and this would move it a second time.
+ */
+export async function handleThreadDroppedOutsideWindow(
+  threadKey: string,
+  screenPoint: { x: number; y: number },
+): Promise<void> {
+  await getBridge()?.handleThreadDroppedOutsideWindow(threadKey, screenPoint);
 }

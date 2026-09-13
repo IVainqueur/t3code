@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   useWindowRegistry,
   openThreadInNewWindow,
+  handleThreadDroppedOutsideWindow,
   __resetWindowRegistry,
 } from "./windowRegistryClient";
 
@@ -22,6 +23,7 @@ function installDesktopBridge() {
       openThreadInNewWindow: vi.fn().mockResolvedValue(undefined),
       addThreadToWindow: vi.fn().mockResolvedValue(undefined),
       focusWindowForThread: vi.fn().mockResolvedValue(undefined),
+      handleThreadDroppedOutsideWindow: vi.fn().mockResolvedValue(undefined),
       onChanged: vi.fn((listener: (snapshot: unknown) => void) => {
         changeListener = listener;
         return () => {
@@ -78,5 +80,22 @@ describe("openThreadInNewWindow", () => {
     const { bridge } = installDesktopBridge();
     await openThreadInNewWindow("env-1:thread-1");
     expect(bridge.windowRegistry.openThreadInNewWindow).toHaveBeenCalledWith("env-1:thread-1");
+  });
+});
+
+describe("handleThreadDroppedOutsideWindow", () => {
+  it("delegates to desktopBridge.windowRegistry.handleThreadDroppedOutsideWindow", async () => {
+    const { bridge } = installDesktopBridge();
+    await handleThreadDroppedOutsideWindow("env-1:thread-1", { x: 120, y: 340 });
+    expect(bridge.windowRegistry.handleThreadDroppedOutsideWindow).toHaveBeenCalledWith(
+      "env-1:thread-1",
+      { x: 120, y: 340 },
+    );
+  });
+
+  it("resolves without throwing on web, where there is no desktop bridge", async () => {
+    await expect(
+      handleThreadDroppedOutsideWindow("env-1:thread-1", { x: 0, y: 0 }),
+    ).resolves.toBeUndefined();
   });
 });

@@ -1379,6 +1379,17 @@ export interface DesktopWindowRegistryBridge {
   addThreadToWindow: (threadKey: string, windowId: DesktopWindowId) => Promise<void>;
   /** Focuses (and restores, if minimized) the window that owns `threadKey`, if any. */
   focusWindowForThread: (threadKey: string) => Promise<void>;
+  /**
+   * Completes a native cross-window drag that no drop target accepted. The
+   * renderer cannot tell "released over another window" from "released over
+   * empty desktop" — no `drop` event fires either way — so it reports the
+   * release point in screen space and the main process decides: over a window,
+   * the thread moves there; over nothing, it detaches into a new window.
+   */
+  handleThreadDroppedOutsideWindow: (
+    threadKey: string,
+    screenPoint: { readonly x: number; readonly y: number },
+  ) => Promise<void>;
   onChanged: (listener: (snapshot: DesktopWindowRegistrySnapshot) => void) => () => void;
 }
 

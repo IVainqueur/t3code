@@ -68,6 +68,7 @@ import {
   focusWindowForThread,
   getMyWindowState,
   getSnapshot as getWindowRegistrySnapshot,
+  handleThreadDroppedOutsideWindow,
   installWindowRegistryEventForwarding,
   openThreadInNewWindow,
 } from "./methods/windowRegistry.ts";
@@ -139,6 +140,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(openThreadInNewWindow);
   yield* ipc.handle(addThreadToWindow);
   yield* ipc.handle(focusWindowForThread);
+  yield* ipc.handle(handleThreadDroppedOutsideWindow);
   yield* ipc.handle(getUpdateState);
   yield* ipc.handle(setUpdateChannel);
   yield* ipc.handle(downloadUpdate);

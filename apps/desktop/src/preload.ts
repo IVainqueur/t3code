@@ -391,6 +391,11 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.invoke(IpcChannels.ADD_THREAD_TO_WINDOW_CHANNEL, { threadKey, windowId }),
     focusWindowForThread: (threadKey) =>
       ipcRenderer.invoke(IpcChannels.FOCUS_WINDOW_FOR_THREAD_CHANNEL, threadKey),
+    handleThreadDroppedOutsideWindow: (threadKey, screenPoint) =>
+      ipcRenderer.invoke(IpcChannels.THREAD_DROPPED_OUTSIDE_WINDOW_CHANNEL, {
+        threadKey,
+        screenPoint,
+      }),
     onChanged: (listener) => {
       const wrappedListener = (_event: Electron.IpcRendererEvent, snapshot: unknown) => {
         if (typeof snapshot !== "object" || snapshot === null) return;
