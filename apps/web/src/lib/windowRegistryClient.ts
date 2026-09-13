@@ -1,7 +1,31 @@
 import { useSyncExternalStore } from "react";
 
+import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
+
 /** The well-known id the Electron main process gives its main window. */
 export const MAIN_WINDOW_ID = "main";
+
+/**
+ * Boot query parameter the Electron main process puts on a secondary
+ * window's URL when that window is created around a specific thread.
+ */
+export const INITIAL_THREAD_KEY_PARAM = "initialThreadKey";
+
+/**
+ * The hash route a freshly opened window should start on, or `null` to leave
+ * the boot route alone. Applied before the router's history is created, so a
+ * window opened around a thread shows that thread instead of the landing
+ * route. An explicit hash (a reload of an already-navigated window) always
+ * wins over the boot parameter.
+ */
+export function resolveInitialThreadRouteHash(search: string, currentHash: string): string | null {
+  if (currentHash !== "" && currentHash !== "#" && currentHash !== "#/") return null;
+  const threadKey = new URLSearchParams(search).get(INITIAL_THREAD_KEY_PARAM);
+  if (threadKey === null) return null;
+  const threadRef = parseScopedThreadKey(threadKey);
+  if (threadRef === null) return null;
+  return `#/${encodeURIComponent(threadRef.environmentId)}/${encodeURIComponent(threadRef.threadId)}`;
+}
 
 export interface WindowMenuEntry {
   readonly id: string;

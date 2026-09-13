@@ -20,8 +20,17 @@ function getDesktopOrigin(isDevelopment: boolean): string {
   return `${getDesktopScheme(isDevelopment)}://${DESKTOP_HOST}`;
 }
 
-export function getDesktopUrl(isDevelopment: boolean): string {
-  return `${getDesktopOrigin(isDevelopment)}/`;
+/**
+ * The renderer entry URL. `query` is how the main process hands a window its
+ * own boot-time state (the renderer reads `location.search`); the path stays
+ * `/` because the app routes on the hash.
+ */
+export function getDesktopUrl(
+  isDevelopment: boolean,
+  query?: Readonly<Record<string, string>>,
+): string {
+  const search = query === undefined ? "" : new URLSearchParams(query).toString();
+  return `${getDesktopOrigin(isDevelopment)}/${search === "" ? "" : `?${search}`}`;
 }
 
 export class ElectronProtocolRegistrationError extends Schema.TaggedError<ElectronProtocolRegistrationError>()(

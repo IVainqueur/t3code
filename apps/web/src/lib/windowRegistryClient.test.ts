@@ -5,6 +5,7 @@ import {
   openThreadInNewWindow,
   handleThreadDroppedOutsideWindow,
   deriveOtherWindows,
+  resolveInitialThreadRouteHash,
   __resetWindowRegistry,
 } from "./windowRegistryClient";
 
@@ -98,6 +99,29 @@ describe("handleThreadDroppedOutsideWindow", () => {
     await expect(
       handleThreadDroppedOutsideWindow("env-1:thread-1", { x: 0, y: 0 }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("resolveInitialThreadRouteHash", () => {
+  it("routes a window opened around a thread straight to that thread", () => {
+    expect(resolveInitialThreadRouteHash("?initialThreadKey=env-1%3Athread-1", "")).toBe(
+      "#/env-1/thread-1",
+    );
+    expect(resolveInitialThreadRouteHash("?initialThreadKey=env-1%3Athread-1", "#/")).toBe(
+      "#/env-1/thread-1",
+    );
+  });
+
+  it("leaves the boot route alone without a usable thread key", () => {
+    expect(resolveInitialThreadRouteHash("", "")).toBeNull();
+    expect(resolveInitialThreadRouteHash("?initialThreadKey=", "")).toBeNull();
+    expect(resolveInitialThreadRouteHash("?initialThreadKey=nonsense", "")).toBeNull();
+  });
+
+  it("never overrides a route the window is already on", () => {
+    expect(
+      resolveInitialThreadRouteHash("?initialThreadKey=env-1%3Athread-1", "#/settings/general"),
+    ).toBeNull();
   });
 });
 

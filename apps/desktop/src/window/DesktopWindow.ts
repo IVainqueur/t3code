@@ -428,9 +428,19 @@ export const make = Effect.gen(function* () {
     // main window may claim it -- a secondary window must not silently steal
     // preview/browser-guest routing away from main.
     readonly isMain: boolean;
+    // The thread a brand-new secondary window should open on. Passed to the
+    // renderer as a boot query parameter because a window created around one
+    // thread must show it, not land on the empty landing route with a
+    // one-row sidebar.
+    readonly initialThreadKey?: string | undefined;
   }): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
     yield* previewManager.getBrowserSession();
-    const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const applicationUrl = getDesktopUrl(
+      environment.isDevelopment,
+      input.initialThreadKey === undefined
+        ? undefined
+        : { initialThreadKey: input.initialThreadKey },
+    );
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -943,7 +953,10 @@ export const make = Effect.gen(function* () {
   const createSecondaryWindow = Effect.fn("desktop.window.createSecondaryWindow")(function* (
     initialThreadKeys: ReadonlyArray<string>,
   ) {
-    const window = yield* createWindow({ isMain: false });
+    const window = yield* createWindow({
+      isMain: false,
+      ...(initialThreadKeys[0] === undefined ? {} : { initialThreadKey: initialThreadKeys[0] }),
+    });
     const windowId: WindowId = NodeCrypto.randomUUID();
     registerWindow(windowId, window, initialThreadKeys);
     yield* logWindowInfo("secondary window created", { windowId });

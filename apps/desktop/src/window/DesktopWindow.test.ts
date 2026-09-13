@@ -1640,6 +1640,27 @@ describe("DesktopWindow", () => {
       }),
     );
 
+    // A window opened around a thread has to show that thread: the renderer
+    // reads this boot parameter and starts on that thread's route.
+    it.effect("boots a secondary window on the thread it was created around", () =>
+      Effect.gen(function* () {
+        const main = makeFakeBrowserWindow();
+        const secondary = makeFakeBrowserWindow();
+        const scenario = yield* makeSplashScenario([main.window, secondary.window]);
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.createMain;
+          yield* desktopWindow.createSecondaryWindow(["env-1:thread-1"]);
+
+          assert.deepEqual(secondary.loadURL.mock.calls, [
+            ["t3code-dev://app/?initialThreadKey=env-1%3Athread-1"],
+          ]);
+          assert.deepEqual(main.loadURL.mock.calls, [["t3code-dev://app/"]]);
+        }).pipe(Effect.provide(scenario.layer));
+      }),
+    );
+
     it.effect("releases the secondary window's threads when it closes", () =>
       Effect.gen(function* () {
         const main = makeFakeBrowserWindow();
