@@ -1,6 +1,7 @@
 import { useLayoutEffect, type PointerEvent as ReactPointerEvent } from "react";
 import { type SensorProps } from "@dnd-kit/core";
 import { getOwnerDocument, getWindow } from "@dnd-kit/utilities";
+import { isThreadWindowDragStart } from "./Sidebar.windowDrag";
 
 // Search unmounts the drag context while its owning Sidebar remains mounted.
 export function SidebarDragLifecycle({ onUnmount }: { onUnmount: () => void }) {
@@ -42,7 +43,7 @@ export class SidebarPointerSensor {
     this.window.addEventListener("blur", this.cancel);
     this.window.addEventListener("pagehide", this.cancel);
     this.window.addEventListener("resize", this.cancel);
-    this.document.addEventListener("dragstart", this.preventDefault);
+    this.document.addEventListener("dragstart", this.dragStart);
     this.document.addEventListener("contextmenu", this.preventDefault);
     props.options.onAttach(this);
     props.onPending(props.active, { distance: props.options.distance }, this.coordinates());
@@ -50,6 +51,17 @@ export class SidebarPointerSensor {
 
   private coordinates = () => ({ x: this.pointer.clientX, y: this.pointer.clientY });
   private preventDefault = (event: Event) => event.preventDefault();
+  /** A sort gesture blocks every native drag under it, so a text or image
+   * drag cannot hijack it. The one exception is the row's own cross-window
+   * thread drag: the row has already tagged that event, and letting it run
+   * means giving up the sort, since only one of the two can own the pointer. */
+  private dragStart = (event: Event) => {
+    if (isThreadWindowDragStart(event as DragEvent)) {
+      this.cancel();
+      return;
+    }
+    event.preventDefault();
+  };
   private clearClickSuppression = () => {
     this.document.removeEventListener("click", this.suppressClick, { capture: true });
     this.document.removeEventListener("pointerdown", this.clearClickSuppression, { capture: true });
@@ -119,7 +131,7 @@ export class SidebarPointerSensor {
     this.window.removeEventListener("blur", this.cancel);
     this.window.removeEventListener("pagehide", this.cancel);
     this.window.removeEventListener("resize", this.cancel);
-    this.document.removeEventListener("dragstart", this.preventDefault);
+    this.document.removeEventListener("dragstart", this.dragStart);
     this.document.removeEventListener("contextmenu", this.preventDefault);
     this.document.removeEventListener("selectionchange", this.clearSelection);
     // Cancellation can precede release by an arbitrary amount of time. Consume

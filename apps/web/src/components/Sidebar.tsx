@@ -85,6 +85,7 @@ import { useRightPanelStore } from "../rightPanelStore";
 import {
   addThreadToWindow,
   focusWindowForThread,
+  handleThreadDroppedOutsideWindow,
   openThreadInNewWindow,
   useWindowRegistry,
 } from "../lib/windowRegistryClient";
@@ -204,6 +205,7 @@ import {
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
+import { makeSidebarWindowDropHandlers, makeThreadWindowDragHandlers } from "./Sidebar.windowDrag";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import {
   ThreadPullRequestBadgeControl,
@@ -1097,6 +1099,15 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   ),
 };
 
+// Shared by every row variant: the drag itself carries the thread key, so
+// nothing here is per-row and one module-level host keeps the row handlers
+// referentially stable.
+const threadWindowDragHost = {
+  onDroppedOutsideWindow(threadKey: string, screenPoint: { x: number; y: number }) {
+    void handleThreadDroppedOutsideWindow(threadKey, screenPoint);
+  },
+};
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
@@ -1116,6 +1127,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // the row redirects there instead of navigating locally (handled by the
   // parent's onThreadClick); this only controls the row's own indicator.
   isOwnedElsewhere: boolean;
+  // True on desktop, where other windows exist to drag a thread into. Passed
+  // down rather than read per row: the window registry changes on every
+  // window event, and rows must not all re-render for that.
+  isDesktopHost: boolean;
   // Present on rows whose server supports every drop outcome: dnd-kit
   // sortable bag applied to the row root so the whole row drags (the
   // pointer sensor's distance constraint keeps plain clicks working).
@@ -1482,6 +1497,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         : null,
     [onFileDropThreads, threadRef],
   );
+  const windowDragHandlers = useMemo(
+    () =>
+      makeThreadWindowDragHandlers({
+        isDesktop: props.isDesktopHost,
+        threadKey,
+        host: threadWindowDragHost,
+      }),
+    [props.isDesktopHost, threadKey],
+  );
   // A drop lands on a child or outside the window entirely, so dragend is
   // the reset of last resort for the row's highlight.
   useEffect(() => {
@@ -1818,6 +1842,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         data-thread-item
         {...sortableRootProps}
         {...(fileDropHandlers ?? {})}
+        {...(windowDragHandlers ?? {})}
         className={cn(
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
@@ -1979,6 +2004,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       data-thread-item
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
+      {...(windowDragHandlers ?? {})}
       className={cn(
         // Matches the h-[4.875rem] content box; the py-0.5 padding is added on top.
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
@@ -2279,6 +2305,7 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   isHighlighted: boolean;
   isRouteActive: boolean;
   isOwnedElsewhere: boolean;
+  isDesktopHost: boolean;
   resultId: string;
   onHighlight: () => void;
   onSelect: () => void;
@@ -2340,6 +2367,15 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
       }),
     [props.onFileDropThreads, threadRef],
   );
+  const windowDragHandlers = useMemo(
+    () =>
+      makeThreadWindowDragHandlers({
+        isDesktop: props.isDesktopHost,
+        threadKey: scopedThreadKey(threadRef),
+        host: threadWindowDragHost,
+      }),
+    [props.isDesktopHost, threadRef],
+  );
   useEffect(() => {
     if (!isFileDragOver) return;
     const clearFileDrag = () => setIsFileDragOver(false);
@@ -2347,7 +2383,12 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
     return () => window.removeEventListener("dragend", clearFileDrag);
   }, [isFileDragOver]);
   return (
-    <li role="presentation" className="list-none" {...fileDropHandlers}>
+    <li
+      role="presentation"
+      className="list-none"
+      {...fileDropHandlers}
+      {...(windowDragHandlers ?? {})}
+    >
       <Tooltip>
         <TooltipTrigger
           render={
@@ -2419,6 +2460,22 @@ export default function Sidebar() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const windowRegistry = useWindowRegistry();
+  // Lets a thread dragged out of another window land anywhere in this
+  // window's sidebar. Only secondary windows take drops: the main window
+  // already owns every thread nobody else was given.
+  const windowDropHandlers = useMemo(
+    () =>
+      makeSidebarWindowDropHandlers({
+        isDesktop: windowRegistry.isDesktop,
+        myWindowId: windowRegistry.myWindowId,
+        host: {
+          addThreadToWindow: (threadKey, windowId) => {
+            void addThreadToWindow(threadKey, windowId);
+          },
+        },
+      }),
+    [windowRegistry.isDesktop, windowRegistry.myWindowId],
+  );
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -4871,6 +4928,7 @@ export default function Sidebar() {
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
         className="gap-0"
+        {...(windowDropHandlers ?? {})}
         fixedHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
@@ -5158,6 +5216,7 @@ export default function Sidebar() {
                           windowRegistry.myWindowId,
                           threadKey,
                         )}
+                        isDesktopHost={windowRegistry.isDesktop}
                         resultId={`sidebar-thread-search-result-${index}`}
                         onHighlight={() => setActiveSearchResultIndex(index)}
                         onSelect={() => selectThreadSearchResult(thread)}
@@ -5250,6 +5309,7 @@ export default function Sidebar() {
                               windowRegistry.myWindowId,
                               threadKey,
                             )}
+                            isDesktopHost={windowRegistry.isDesktop}
                             sortable={sortable}
                             dropVerb={
                               dragState?.activeKey === threadKey
