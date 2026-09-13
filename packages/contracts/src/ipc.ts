@@ -1351,6 +1351,35 @@ export interface DesktopBridge {
    * Electron desktop build; web builds have `preview === undefined`.
    */
   preview?: DesktopPreviewBridge;
+  /**
+   * Tracks which OS window owns which thread for multi-window desktop
+   * threads. Optional: older desktop builds lack it, and web builds never
+   * have it.
+   */
+  windowRegistry?: DesktopWindowRegistryBridge;
+}
+
+/** A window identifier from the main process's in-memory window/thread registry. */
+export type DesktopWindowId = string;
+
+export interface DesktopWindowRegistrySnapshot {
+  readonly ownerByThreadKey: Readonly<Record<string, DesktopWindowId>>;
+  readonly windowThreadKeys: Readonly<Record<DesktopWindowId, ReadonlyArray<string>>>;
+}
+
+export interface DesktopWindowRegistryBridge {
+  /** The calling window's own id and the threads it currently owns. */
+  getMyWindowState: () => Promise<{
+    readonly windowId: DesktopWindowId;
+    readonly threadKeys: ReadonlyArray<string>;
+  }>;
+  getSnapshot: () => Promise<DesktopWindowRegistrySnapshot>;
+  /** Opens `threadKey` in a brand-new secondary window. */
+  openThreadInNewWindow: (threadKey: string) => Promise<void>;
+  addThreadToWindow: (threadKey: string, windowId: DesktopWindowId) => Promise<void>;
+  /** Focuses (and restores, if minimized) the window that owns `threadKey`, if any. */
+  focusWindowForThread: (threadKey: string) => Promise<void>;
+  onChanged: (listener: (snapshot: DesktopWindowRegistrySnapshot) => void) => () => void;
 }
 
 /** Renderer callback invoked by Electron with a fresh user gesture before display-media capture. */

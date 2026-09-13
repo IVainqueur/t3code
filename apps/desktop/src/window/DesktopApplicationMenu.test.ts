@@ -94,6 +94,7 @@ const makeDesktopWindowLayer = (selectedAction: Deferred.Deferred<string>) =>
     createSecondaryWindow: () => Effect.die("unexpected createSecondaryWindow"),
     focusWindow: () => Effect.void,
     windowThreadRegistry: new WindowThreadRegistry(),
+    windowIdForWebContents: () => undefined,
   } satisfies DesktopWindow.DesktopWindow["Service"]);
 
 const makeElectronMenuLayer = (

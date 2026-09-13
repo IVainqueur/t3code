@@ -108,3 +108,10 @@ export const PREVIEW_RECORDING_SAVE_CHANNEL = "desktop:preview-recording-save";
 export const PREVIEW_RECORDING_FRAME_CHANNEL = "desktop:preview-recording-frame";
 export const PREVIEW_STATE_CHANGE_CHANNEL = "desktop:preview-state-change";
 export const PREVIEW_POINTER_EVENT_CHANNEL = "desktop:preview-pointer-event";
+export const GET_WINDOW_REGISTRY_STATE_CHANNEL = "desktop:get-window-registry-state";
+export const GET_WINDOW_REGISTRY_SNAPSHOT_CHANNEL = "desktop:get-window-registry-snapshot";
+export const OPEN_THREAD_IN_NEW_WINDOW_CHANNEL = "desktop:open-thread-in-new-window";
+export const ADD_THREAD_TO_WINDOW_CHANNEL = "desktop:add-thread-to-window";
+export const FOCUS_WINDOW_FOR_THREAD_CHANNEL = "desktop:focus-window-for-thread";
+/** Main -> renderer: the window/thread ownership map changed. */
+export const WINDOW_REGISTRY_CHANGED_CHANNEL = "desktop:window-registry-changed";

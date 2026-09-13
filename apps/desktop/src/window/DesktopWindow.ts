@@ -140,6 +140,12 @@ export class DesktopWindow extends Context.Service<
     // Exposed so IPC handlers (multi-window thread routing) can call
     // snapshot()/assignThread()/ownerOf()/subscribe() directly.
     readonly windowThreadRegistry: WindowThreadRegistry;
+    // Resolves the registry `WindowId` owning a renderer's webContents, so an
+    // IPC handler answering "which window is this caller?" doesn't need its
+    // own window bookkeeping alongside `windowThreadRegistry`. `undefined` for
+    // a webContents that never went through `registerWindow` (e.g. already
+    // closed, or a foreign/devtools contents).
+    readonly windowIdForWebContents: (webContentsId: number) => WindowId | undefined;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
 
@@ -877,6 +883,15 @@ export const make = Effect.gen(function* () {
     return windowId;
   });
 
+  const windowIdForWebContents = (webContentsId: number): WindowId | undefined => {
+    for (const [windowId, window] of windowsById) {
+      if (!window.isDestroyed() && window.webContents.id === webContentsId) {
+        return windowId;
+      }
+    }
+    return undefined;
+  };
+
   const focusWindow = Effect.fn("desktop.window.focusWindow")(function* (windowId: WindowId) {
     yield* Effect.annotateCurrentSpan({ windowId });
     const window = windowsById.get(windowId);
@@ -1061,6 +1076,7 @@ export const make = Effect.gen(function* () {
     createSecondaryWindow,
     focusWindow,
     windowThreadRegistry,
+    windowIdForWebContents,
   });
 });
 

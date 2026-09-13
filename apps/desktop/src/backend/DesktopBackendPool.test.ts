@@ -105,6 +105,7 @@ function makePoolLayer(
           createSecondaryWindow: () => Effect.die("unexpected secondary window creation"),
           focusWindow: () => Effect.void,
           windowThreadRegistry: new WindowThreadRegistry(),
+          windowIdForWebContents: () => undefined,
         } satisfies DesktopWindow.DesktopWindow["Service"]),
       ),
     ),

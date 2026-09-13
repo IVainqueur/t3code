@@ -382,4 +382,24 @@ contextBridge.exposeInMainWorld("desktopBridge", {
         ipcRenderer.removeListener(IpcChannels.PREVIEW_POINTER_EVENT_CHANNEL, wrappedListener);
     },
   },
+  windowRegistry: {
+    getMyWindowState: () => ipcRenderer.invoke(IpcChannels.GET_WINDOW_REGISTRY_STATE_CHANNEL),
+    getSnapshot: () => ipcRenderer.invoke(IpcChannels.GET_WINDOW_REGISTRY_SNAPSHOT_CHANNEL),
+    openThreadInNewWindow: (threadKey) =>
+      ipcRenderer.invoke(IpcChannels.OPEN_THREAD_IN_NEW_WINDOW_CHANNEL, threadKey),
+    addThreadToWindow: (threadKey, windowId) =>
+      ipcRenderer.invoke(IpcChannels.ADD_THREAD_TO_WINDOW_CHANNEL, { threadKey, windowId }),
+    focusWindowForThread: (threadKey) =>
+      ipcRenderer.invoke(IpcChannels.FOCUS_WINDOW_FOR_THREAD_CHANNEL, threadKey),
+    onChanged: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, snapshot: unknown) => {
+        if (typeof snapshot !== "object" || snapshot === null) return;
+        listener(snapshot as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IpcChannels.WINDOW_REGISTRY_CHANGED_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.WINDOW_REGISTRY_CHANGED_CHANNEL, wrappedListener);
+      };
+    },
+  },
 } satisfies DesktopBridge);
