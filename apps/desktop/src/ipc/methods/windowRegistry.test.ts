@@ -29,6 +29,7 @@ describe("getMyWindowState", () => {
           listWindowBounds: () => [],
           windowIdForWebContents: (webContentsId) =>
             webContentsId === 42 ? "secondary-1" : undefined,
+          windowForId: () => undefined,
         }),
       ),
     );
@@ -46,6 +47,7 @@ describe("getMyWindowState", () => {
           windowThreadRegistry,
           listWindowBounds: () => [],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         }),
       ),
     );
@@ -67,6 +69,7 @@ describe("getSnapshot", () => {
           windowThreadRegistry,
           listWindowBounds: () => [],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         }),
       ),
     );
@@ -87,6 +90,7 @@ describe("openThreadInNewWindow", () => {
           windowThreadRegistry: new WindowThreadRegistry(),
           listWindowBounds: () => [],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         }),
       ),
     );
@@ -107,6 +111,7 @@ describe("addThreadToWindow", () => {
           windowThreadRegistry,
           listWindowBounds: () => [],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         }),
       ),
     );
@@ -142,6 +147,7 @@ describe("handleThreadDroppedOutsideWindow", () => {
             bounds("secondary-1", 200, 200),
           ],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         }),
       ),
     );
@@ -168,6 +174,7 @@ describe("handleThreadDroppedOutsideWindow", () => {
           createSecondaryWindow,
           listWindowBounds: () => [bounds(DesktopWindow.MAIN_WINDOW_ID, 0, 0)],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         }),
       ),
     );
@@ -198,6 +205,7 @@ describe("handleThreadDroppedOutsideWindow", () => {
               bounds("secondary-1", 100, 0),
             ],
             windowIdForWebContents: () => undefined,
+            windowForId: () => undefined,
           }),
         ),
       );
@@ -227,6 +235,7 @@ describe("handleThreadDroppedOutsideWindow", () => {
             bounds("secondary-1", 0, 0),
           ],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         }),
       ),
     );
@@ -249,6 +258,7 @@ describe("focusWindowForThread", () => {
           focusWindow,
           listWindowBounds: () => [],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         }),
       ),
     );
@@ -268,6 +278,7 @@ describe("focusWindowForThread", () => {
           focusWindow,
           listWindowBounds: () => [],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         }),
       ),
     );

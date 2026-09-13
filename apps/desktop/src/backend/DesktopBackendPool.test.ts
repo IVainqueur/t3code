@@ -107,6 +107,7 @@ function makePoolLayer(
           windowThreadRegistry: new WindowThreadRegistry(),
           listWindowBounds: () => [],
           windowIdForWebContents: () => undefined,
+          windowForId: () => undefined,
         } satisfies DesktopWindow.DesktopWindow["Service"]),
       ),
     ),

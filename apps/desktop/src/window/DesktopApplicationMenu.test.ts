@@ -100,6 +100,7 @@ const makeDesktopWindowLayer = (selectedAction: Deferred.Deferred<string>) =>
     windowThreadRegistry: new WindowThreadRegistry(),
     listWindowBounds: () => [],
     windowIdForWebContents: () => undefined,
+    windowForId: () => undefined,
   } satisfies DesktopWindow.DesktopWindow["Service"]);
 
 const makeElectronMenuLayer = (

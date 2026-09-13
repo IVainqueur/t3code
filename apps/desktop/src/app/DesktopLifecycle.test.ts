@@ -104,6 +104,7 @@ function makeDesktopWindowLayer(
     windowThreadRegistry: new WindowThreadRegistry(),
     listWindowBounds: () => [],
     windowIdForWebContents: () => undefined,
+    windowForId: () => undefined,
   });
 }
 

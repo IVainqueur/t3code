@@ -150,6 +150,11 @@ export class DesktopWindow extends Context.Service<
     // a webContents that never went through `registerWindow` (e.g. already
     // closed, or a foreign/devtools contents).
     readonly windowIdForWebContents: (webContentsId: number) => WindowId | undefined;
+    // The live `BrowserWindow` behind a registry `WindowId`. An IPC handler
+    // that resolved *which* window is calling still needs the window itself
+    // to read bounds, zoom, or parent a dialog, and must act on that window
+    // rather than assuming main. `undefined` once the window has closed.
+    readonly windowForId: (windowId: WindowId) => Electron.BrowserWindow | undefined;
     // Screen-space bounds of every live registered window, in creation order.
     // Exposed so IPC handlers can answer "which window is this screen point
     // over?" — a native cross-window drag reports where it was released, and
@@ -972,6 +977,11 @@ export const make = Effect.gen(function* () {
     return undefined;
   };
 
+  const windowForId = (windowId: WindowId): Electron.BrowserWindow | undefined => {
+    const window = windowsById.get(windowId);
+    return window === undefined || window.isDestroyed() ? undefined : window;
+  };
+
   const listWindowBounds = () => {
     const entries: { windowId: WindowId; bounds: Electron.Rectangle }[] = [];
     for (const [windowId, window] of windowsById) {
@@ -983,8 +993,8 @@ export const make = Effect.gen(function* () {
 
   const focusWindow = Effect.fn("desktop.window.focusWindow")(function* (windowId: WindowId) {
     yield* Effect.annotateCurrentSpan({ windowId });
-    const window = windowsById.get(windowId);
-    if (window === undefined || window.isDestroyed()) return;
+    const window = windowForId(windowId);
+    if (window === undefined) return;
     if (window.isMinimized()) {
       window.restore();
     }
@@ -1166,6 +1176,7 @@ export const make = Effect.gen(function* () {
     focusWindow,
     windowThreadRegistry,
     windowIdForWebContents,
+    windowForId,
     listWindowBounds,
   });
 });
