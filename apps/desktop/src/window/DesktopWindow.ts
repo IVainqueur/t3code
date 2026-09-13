@@ -38,6 +38,10 @@ const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linu
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
 const MAIN_WINDOW_BOUNDS_PERSIST_DEBOUNCE_MS = 500;
+// Secondary windows are session-only (see the spec's "no persistence across
+// relaunch" non-goal), so they never read or write the persisted main-window
+// geometry. They cascade off main instead of opening exactly on top of it.
+const SECONDARY_WINDOW_CASCADE_OFFSET = 32;
 // The well-known id of the main window in `windowThreadRegistry` /
 // `windowsById`. Downstream IPC and menu code rely on this exact string to
 // address the main window rather than a generated id.
@@ -214,6 +218,30 @@ export function resolveInitialMainWindowBounds(
     return persistedBounds;
   }
   return DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE;
+}
+
+/**
+ * Where a secondary window opens. Nothing about a secondary window is
+ * persisted, so this is derived fresh every time: cascade off the main
+ * window's restored (non-maximized) position, one step per window already
+ * open, so a new window never lands exactly on top of the one it came from —
+ * which would also make "drop a thread outside every window" unreachable.
+ * Falls back to the default centered size when main's geometry is unknown.
+ */
+export function resolveSecondaryWindowBounds(
+  mainBounds: DisplayBounds | null,
+  cascadeIndex: number,
+): DesktopAppSettings.DesktopWindowBounds | typeof DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE {
+  if (mainBounds === null) {
+    return DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE;
+  }
+  const offset = SECONDARY_WINDOW_CASCADE_OFFSET * Math.max(cascadeIndex, 1);
+  return {
+    x: Math.round(mainBounds.x) + offset,
+    y: Math.round(mainBounds.y) + offset,
+    width: DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE.width,
+    height: DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE.height,
+  };
 }
 
 // A self-contained "Connecting to WSL" splash, shown immediately in wsl-only
@@ -424,9 +452,24 @@ export const make = Effect.gen(function* () {
         : yield* logWindowWarning("failed to read connected displays; using defaults", {
             cause: displayBoundsResult.cause,
           }).pipe(Effect.as<readonly Electron.Rectangle[]>([]));
-    const initialBounds = resolveInitialMainWindowBounds(persistedBounds, displayBounds);
-    const restoredPersistedBounds = persistedBounds !== null && initialBounds === persistedBounds;
-    if (persistedBounds !== null && initialBounds === DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE) {
+    // Only the main window restores (and later persists) the saved geometry.
+    // A secondary window cascades off main and is never written back.
+    const mainWindowForCascade = input.isMain ? undefined : windowsById.get(MAIN_WINDOW_ID);
+    const initialBounds = input.isMain
+      ? resolveInitialMainWindowBounds(persistedBounds, displayBounds)
+      : resolveSecondaryWindowBounds(
+          mainWindowForCascade === undefined || mainWindowForCascade.isDestroyed()
+            ? null
+            : mainWindowForCascade.getNormalBounds(),
+          windowsById.size,
+        );
+    const restoredPersistedBounds =
+      input.isMain && persistedBounds !== null && initialBounds === persistedBounds;
+    if (
+      input.isMain &&
+      persistedBounds !== null &&
+      initialBounds === DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE
+    ) {
       yield* logWindowWarning("saved main window bounds could not be restored; using defaults");
     }
     const window = yield* electronWindow.create({
@@ -543,9 +586,12 @@ export const make = Effect.gen(function* () {
         fiber === undefined ? Effect.void : Fiber.join(fiber).pipe(Effect.asVoid),
       ),
     );
-    flushMainWindowBounds = flushBoundsPersist;
-
+    // `flushMainWindowBounds` is a single shared slot read at quit time, and
+    // `persistCurrentBounds` writes the *main* window's saved geometry. Both
+    // belong to main alone — a secondary window claiming either would persist
+    // its own position as the user's main window position.
     if (input.isMain) {
+      flushMainWindowBounds = flushBoundsPersist;
       yield* previewManager.setMainWindow(window);
     }
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
@@ -704,13 +750,15 @@ export const make = Effect.gen(function* () {
       event.preventDefault();
       window.setTitle(environment.displayName);
     });
-    window.on("resize", scheduleBoundsPersist);
-    window.on("move", scheduleBoundsPersist);
-    window.on("maximize", scheduleBoundsPersist);
-    window.on("unmaximize", scheduleBoundsPersist);
-    window.on("close", () => {
-      runFork(flushBoundsPersist);
-    });
+    if (input.isMain) {
+      window.on("resize", scheduleBoundsPersist);
+      window.on("move", scheduleBoundsPersist);
+      window.on("maximize", scheduleBoundsPersist);
+      window.on("unmaximize", scheduleBoundsPersist);
+      window.on("close", () => {
+        runFork(flushBoundsPersist);
+      });
+    }
 
     if (environment.platform === "darwin") {
       window.on("enter-full-screen", () => {
@@ -854,7 +902,7 @@ export const make = Effect.gen(function* () {
       }
       // Reveal the real window, then close the connecting splash (if any) so the
       // two don't overlap and there's no blank gap between them.
-      if (persistedSettings.mainWindowMaximized) {
+      if (input.isMain && persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
       void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));

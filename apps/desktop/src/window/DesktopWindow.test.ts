@@ -328,7 +328,15 @@ function makeTestLayer(input: {
 // currentMainOrFirst mirrors the real fallback to the first live window (the
 // splash, before any main is registered). Reveal targets are recorded so tests
 // can assert what activation actually surfaced.
-const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | null)[]) =>
+const makeSplashScenario = (
+  createOutcomes: readonly (Electron.BrowserWindow | null)[],
+  options: {
+    readonly createdWindowOptions?: Electron.BrowserWindowConstructorOptions[];
+    readonly mainWindowBoundsUpdates?: DesktopAppSettings.DesktopWindowBounds[];
+    readonly quitCalls?: string[];
+    readonly desktopSettings?: DesktopAppSettings.DesktopSettings;
+  } = {},
+) =>
   Effect.gen(function* () {
     const createdWindows = yield* Ref.make<Electron.BrowserWindow[]>([]);
     const createCalls = yield* Ref.make(0);
@@ -349,8 +357,9 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
     });
 
     const electronWindowShape = {
-      create: () =>
+      create: (windowOptions) =>
         Effect.gen(function* () {
+          options.createdWindowOptions?.push(windowOptions);
           const index = yield* Ref.getAndUpdate(createCalls, (count) => count + 1);
           const outcome = createOutcomes[index] ?? null;
           if (outcome === null) {
@@ -394,15 +403,43 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       syncAllAppearance: (sync) => (fallbackWindow ? sync(fallbackWindow) : Effect.void),
     } satisfies ElectronWindow.ElectronWindow["Service"];
 
+    let scenarioSettings = options.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
+    const recordingSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
+      get: Effect.sync(() => scenarioSettings),
+      load: Effect.sync(() => scenarioSettings),
+      setMainWindowBounds: (bounds, isMaximized) =>
+        Effect.sync(() => {
+          scenarioSettings = {
+            ...scenarioSettings,
+            mainWindowBounds: bounds,
+            mainWindowMaximized: isMaximized,
+          };
+          options.mainWindowBoundsUpdates?.push(bounds);
+          return { settings: scenarioSettings, changed: true };
+        }),
+      setServerExposureMode: () => Effect.die("unexpected server exposure update"),
+      setTailscaleServe: () => Effect.die("unexpected Tailscale Serve update"),
+      setUpdateChannel: () => Effect.die("unexpected update channel change"),
+      setWslBackendEnabled: () => Effect.die("unexpected WSL backend toggle"),
+      setWslDistro: () => Effect.die("unexpected WSL distro change"),
+      setWslOnly: () => Effect.die("unexpected WSL-only toggle"),
+      applyWslWindowsFallback: Effect.die("unexpected WSL Windows fallback"),
+      applyWslWindowsFallbackInMemory: Effect.die("unexpected WSL Windows fallback"),
+    } satisfies DesktopAppSettings.DesktopAppSettings["Service"]);
+
     const layer = DesktopWindow.layer.pipe(
       Layer.provide(
         Layer.mergeAll(
           desktopAssetsLayer,
           desktopEnvironmentLayer,
-          DesktopAppSettings.layerTest(),
+          recordingSettingsLayer,
           desktopClientSettingsLayer,
           desktopServerExposureLayer,
-          electronAppLayer,
+          Layer.mock(ElectronApp.ElectronApp)({
+            quit: Effect.sync(() => {
+              options.quitCalls?.push("quit");
+            }),
+          }),
           electronMenuLayer,
           Layer.succeed(ElectronShell.ElectronShell, {
             openExternal: () => Effect.succeed(true),
@@ -1649,6 +1686,94 @@ describe("DesktopWindow", () => {
             assert.deepEqual(yield* Ref.get(scenario.previewMainWindowSets), [main.window]);
           }).pipe(Effect.provide(scenario.layer));
         }),
+    );
+
+    // The persisted geometry belongs to the main window alone. A secondary
+    // window that wrote to it would silently relocate/resize the user's main
+    // window on the next launch.
+    it.effect("never persists a secondary window's geometry as the main window bounds", () =>
+      Effect.gen(function* () {
+        const main = makeFakeBrowserWindow();
+        const secondary = makeFakeBrowserWindow();
+        const mainWindowBoundsUpdates: DesktopAppSettings.DesktopWindowBounds[] = [];
+        const scenario = yield* makeSplashScenario([main.window, secondary.window], {
+          mainWindowBoundsUpdates,
+        });
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.createMain;
+          yield* desktopWindow.createSecondaryWindow([]);
+
+          secondary.getBounds.mockReturnValue({ x: 900, y: 500, width: 1000, height: 700 });
+          secondary.getNormalBounds.mockReturnValue({ x: 900, y: 500, width: 1000, height: 700 });
+          for (const eventName of ["resize", "move", "maximize", "unmaximize", "close"] as const) {
+            secondary.windowListeners.get(eventName)?.();
+          }
+          yield* TestClock.adjust(1_000);
+          yield* Effect.promise(() => Promise.resolve());
+          assert.deepEqual(mainWindowBoundsUpdates, []);
+
+          // Regression guard: main still persists its own geometry.
+          main.getBounds.mockReturnValue({ x: 120, y: 90, width: 1280, height: 840 });
+          main.getNormalBounds.mockReturnValue({ x: 120, y: 90, width: 1280, height: 840 });
+          const mainMove = main.windowListeners.get("move");
+          if (!mainMove) {
+            return yield* Effect.die("main window move listener was not registered");
+          }
+          mainMove();
+          yield* TestClock.adjust(500);
+          yield* Effect.promise(() => Promise.resolve());
+          assert.deepEqual(mainWindowBoundsUpdates, [{ x: 120, y: 90, width: 1280, height: 840 }]);
+        }).pipe(Effect.provide(scenario.layer));
+      }),
+    );
+
+    it.effect("opens a secondary window cascaded off main instead of on top of it", () =>
+      Effect.gen(function* () {
+        const main = makeFakeBrowserWindow();
+        main.getNormalBounds.mockReturnValue({ x: 100, y: 60, width: 1600, height: 1000 });
+        const secondary = makeFakeBrowserWindow();
+        const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+        const scenario = yield* makeSplashScenario([main.window, secondary.window], {
+          createdWindowOptions,
+          desktopSettings: {
+            ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+            mainWindowBounds: { x: 100, y: 60, width: 1600, height: 1000 },
+            mainWindowMaximized: true,
+          },
+        });
+
+        yield* Effect.gen(function* () {
+          const desktopWindow = yield* DesktopWindow.DesktopWindow;
+          yield* desktopWindow.createMain;
+          yield* desktopWindow.createSecondaryWindow([]);
+
+          assert.deepEqual(createdWindowOptions[0]?.x, 100);
+          assert.deepEqual(createdWindowOptions[0]?.y, 60);
+          assert.deepEqual(createdWindowOptions[1]?.x, 132);
+          assert.deepEqual(createdWindowOptions[1]?.y, 92);
+          assert.equal(createdWindowOptions[1]?.width, 1100);
+          assert.equal(createdWindowOptions[1]?.height, 780);
+
+          // The persisted maximized state is main's alone.
+          secondary.windowListeners.get("ready-to-show")?.();
+          assert.equal(secondary.maximize.mock.calls.length, 0);
+          main.windowListeners.get("ready-to-show")?.();
+          assert.equal(main.maximize.mock.calls.length, 1);
+        }).pipe(Effect.provide(scenario.layer));
+      }),
+    );
+  });
+
+  it("cascades secondary window bounds off main, falling back to the default size", () => {
+    assert.deepEqual(
+      DesktopWindow.resolveSecondaryWindowBounds({ x: 10, y: 20, width: 900, height: 700 }, 2),
+      { x: 74, y: 84, width: 1100, height: 780 },
+    );
+    assert.deepEqual(
+      DesktopWindow.resolveSecondaryWindowBounds(null, 3),
+      DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE,
     );
   });
 });
