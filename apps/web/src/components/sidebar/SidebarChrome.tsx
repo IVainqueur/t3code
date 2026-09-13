@@ -6,7 +6,7 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useCallback } from "react";
+import { cloneElement, isValidElement, memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -141,8 +141,10 @@ function SidebarUtilityItem({
               )}
             >
               {accent ? (
-                <span className="relative grid place-items-center">
-                  {icon}
+                <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+                  {isValidElement<{ className?: string }>(icon)
+                    ? cloneElement(icon, { className: cn("size-4", icon.props.className) })
+                    : icon}
                   <span
                     aria-hidden="true"
                     className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current ring-2 ring-sidebar-control-surface"
