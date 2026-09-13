@@ -10,7 +10,7 @@ and mode selections, unless the destination project has its own model default.
 Its branch and workspace mode come from your configured defaults. To continue in
 an existing worktree, use **New thread in this worktree** from the branch toolbar.
 
-When you change a new thread's project, T3 Code stays in the current environment
+When you change a new thread's project, T4 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
 ### Start in the background
@@ -92,7 +92,7 @@ position, so using **Un-settle** returns it to the top. Pinning and snoozing pre
 position until you move it again. Thread activity does not change the order. The settled shelf
 continues to use settlement time.
 
-If dragging is unavailable for one environment, update the T3 Code server running in that
+If dragging is unavailable for one environment, update the T4 Code server running in that
 environment. Pinned and active reordering require server support. Threads from older servers keep
 their default order until the server is updated.
 
@@ -137,7 +137,7 @@ appears while you are already looking at that thread; the notification arrives w
 you move away.
 
 A reminder survives closing the app: one that came due while you were away fires
-the next time you open T3 Code, however late. Reminders are stored on the device
+the next time you open T4 Code, however late. Reminders are stored on the device
 where you set them, so one set on your desktop does not appear on your phone.
 
 ## Link a pull request
