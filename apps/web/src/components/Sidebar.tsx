@@ -82,7 +82,12 @@ import {
 import { useParams, useRouter } from "@tanstack/react-router";
 
 import { useRightPanelStore } from "../rightPanelStore";
-import { focusWindowForThread, useWindowRegistry } from "../lib/windowRegistryClient";
+import {
+  addThreadToWindow,
+  focusWindowForThread,
+  openThreadInNewWindow,
+  useWindowRegistry,
+} from "../lib/windowRegistryClient";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -4526,6 +4531,11 @@ export default function Sidebar() {
               snoozePresets,
               reminderPresets,
               hasReminder,
+              isDesktop: windowRegistry.isDesktop,
+              otherWindowIds: windowRegistry.otherWindowIds.map((windowId, index) => ({
+                id: windowId,
+                label: `Window ${index + 1}`,
+              })),
             }),
             position,
           ),
@@ -4543,6 +4553,10 @@ export default function Sidebar() {
             (candidate) => `remind:${candidate.id}` === clicked.value,
           );
           if (preset) attemptSetReminder(threadRef, preset.remindAt);
+          return;
+        }
+        if (clicked.value?.startsWith("add-to-window:")) {
+          await addThreadToWindow(threadKey, clicked.value.slice("add-to-window:".length));
           return;
         }
         switch (clicked.value) {
@@ -4602,6 +4616,9 @@ export default function Sidebar() {
             return;
           case "unpin":
             attemptUnpin(threadRef);
+            return;
+          case "open-in-new-window":
+            await openThreadInNewWindow(threadKey);
             return;
           case "rename":
             startThreadRename(threadRef, thread.title);
@@ -4732,6 +4749,7 @@ export default function Sidebar() {
       startThreadRename,
       updateThreadMetadata,
       timestampFormat,
+      windowRegistry,
     ],
   );
 

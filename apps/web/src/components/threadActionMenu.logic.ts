@@ -29,6 +29,9 @@ export type ThreadActionMenuId =
   | "copy-path"
   | "copy-branch"
   | "copy-thread-id"
+  | "open-in-new-window"
+  | "add-to-window"
+  | `add-to-window:${string}`
   | "archive"
   | "delete";
 
@@ -55,6 +58,12 @@ export interface ThreadActionMenuState {
   /** The custom-minutes item needs a popover to open. Surfaces without one
       (the chat header) offer the presets only. */
   readonly supportsCustomReminder?: boolean;
+  /** Only the desktop app has a window registry to open/add threads into, so
+      this stays undefined (hidden) on every other surface. */
+  readonly isDesktop?: boolean;
+  /** Other open windows a thread can be added to. Empty (or absent) hides
+      "Add to Window" even when `isDesktop` is true. */
+  readonly otherWindowIds?: ReadonlyArray<{ readonly id: string; readonly label: string }>;
 }
 
 /**
@@ -162,6 +171,29 @@ export function buildThreadActionMenuItems(
       ],
     },
     { id: "project-settings", label: "Project settings", icon: "settings" },
+    // Desktop-only: the sidebar row is the only surface with a window
+    // registry to open/add threads into.
+    ...(state.isDesktop === true
+      ? [
+          {
+            id: "open-in-new-window" as const,
+            label: "Open in New Window",
+            separatorBefore: true,
+          },
+          ...((state.otherWindowIds?.length ?? 0) > 0
+            ? [
+                {
+                  id: "add-to-window" as const,
+                  label: "Add to Window",
+                  children: (state.otherWindowIds ?? []).map((window) => ({
+                    id: `add-to-window:${window.id}` as const,
+                    label: window.label,
+                  })),
+                },
+              ]
+            : []),
+        ]
+      : []),
     // Archive removes the thread from the sidebar while keeping its
     // conversation under Settings > Archived threads — distinct from Settle
     // (stays visible in the Settled shelf) and Delete (clears history for
