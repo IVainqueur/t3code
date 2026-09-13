@@ -55,6 +55,12 @@ const testState = vi.hoisted(() => {
         completeProjectFileRead = resolve;
       });
     },
+    // Simulates a concurrent invocation registering its own draft for the
+    // same logical project while this invocation's await is pending — the
+    // "raced draft" branch in useNewThreadHandler.
+    setStoredDraft(nextStoredDraft: typeof storedDraft) {
+      storedDraft = nextStoredDraft;
+    },
     router,
     get windowRegistryState() {
       return windowRegistryState;
@@ -233,5 +239,32 @@ describe("useNewThreadHandler", () => {
     await pendingOpen;
 
     expect(testState.addThreadToWindow).not.toHaveBeenCalled();
+  });
+
+  it("adds the raced-draft winner's thread to a secondary window", async () => {
+    testState.reset(null, { isDesktop: true, myWindowId: "window-2" });
+    const openThread = useNewThreadHandler();
+    const pendingOpen = openThread({
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never);
+
+    // A concurrent invocation registers its own draft for the same logical
+    // project while this invocation's env-mode resolution is still pending —
+    // this invocation becomes the "raced" loser and defers to the winner.
+    testState.setStoredDraft({
+      draftId: "draft-winner",
+      environmentId: "environment-ssh",
+      promotedTo: null,
+      threadId: "thread-winner",
+    });
+    testState.completeProjectFileRead(null);
+    const result = await pendingOpen;
+
+    expect(result).toEqual({ draftId: "draft-winner", threadId: "thread-winner" });
+    expect(testState.addThreadToWindow).toHaveBeenCalledWith(
+      "environment-ssh:thread-winner",
+      "window-2",
+    );
   });
 });

@@ -8,6 +8,7 @@ import {
 import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_SERVER_SETTINGS,
+  type EnvironmentId,
   type ScopedProjectRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -71,6 +72,21 @@ export function useNewThreadHandler() {
     const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
     return resolveThreadRouteTarget(currentRouteParams);
   }, [router]);
+  // A thread newly minted from inside a secondary window should join that
+  // window's set rather than default to "unowned" in main. Shared by the
+  // mint-fresh path and the raced-draft path below — both can be the point
+  // where a secondary window's request resolves to a genuinely new thread.
+  const joinCreatingWindow = useCallback(
+    (environmentId: EnvironmentId, joinedThreadId: ThreadId) => {
+      if (myWindowId && myWindowId !== "main") {
+        void addThreadToWindow(
+          scopedThreadKey(scopeThreadRef(environmentId, joinedThreadId)),
+          myWindowId,
+        );
+      }
+    },
+    [myWindowId],
+  );
 
   return useCallback(
     (
@@ -404,6 +420,7 @@ export function useNewThreadHandler() {
             params: { draftId: racedDraft.draftId },
             replace: options?.replace ?? false,
           });
+          joinCreatingWindow(racedDraft.environmentId, racedDraft.threadId);
           return { draftId: racedDraft.draftId, threadId: racedDraft.threadId };
         }
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
@@ -433,19 +450,14 @@ export function useNewThreadHandler() {
           params: { draftId },
           replace: options?.replace ?? false,
         });
-        if (myWindowId && myWindowId !== "main") {
-          void addThreadToWindow(
-            scopedThreadKey(scopeThreadRef(projectRef.environmentId, threadId)),
-            myWindowId,
-          );
-        }
+        joinCreatingWindow(projectRef.environmentId, threadId);
         return { draftId, threadId };
       })();
     },
     [
       environmentServerConfigs,
       getCurrentRouteTarget,
-      myWindowId,
+      joinCreatingWindow,
       primaryServerSettings.newWorktreesStartFromOrigin,
       projectGroupingSettings,
       router,
