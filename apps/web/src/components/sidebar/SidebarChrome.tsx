@@ -98,7 +98,7 @@ function SecondaryWindowPill() {
       <TooltipTrigger
         render={
           <Badge
-            className="relative z-10 ml-1 rounded-full px-1.5"
+            className="relative z-10 ml-1 hidden shrink-0 rounded-full px-1.5 @[15rem]/sidebar-header:inline-flex"
             size="sm"
             variant="secondary"
             render={
@@ -110,7 +110,7 @@ function SecondaryWindowPill() {
                 }}
               >
                 <AppWindowIcon />
-                <span className="hidden @[15rem]/sidebar-header:inline">Window</span>
+                <span>Window</span>
               </button>
             }
           />
