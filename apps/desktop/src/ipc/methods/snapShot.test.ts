@@ -5,9 +5,10 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
-import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as DesktopSnapShot from "../../snapShot/DesktopSnapShot.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
+import { WindowThreadRegistry } from "../../window/WindowThreadRegistry.ts";
 import {
   checkSnapShotShortcut,
   requestSnapShotPermissions,
@@ -18,7 +19,32 @@ import {
   setSnapShotShortcutSuppressed,
   snapShotScreenFrame,
   snapShotRelativeFrame,
+  listPendingSnapShots,
 } from "./snapShot.ts";
+
+const MAIN_WEB_CONTENTS_ID = 7;
+const SECONDARY_WEB_CONTENTS_ID = 11;
+const SECONDARY_WINDOW_ID = "secondary-1";
+
+/**
+ * Stands in for the main-process window registry: only windows this app
+ * created resolve to a `WindowId`, and every one of them is a trusted
+ * snapshot caller.
+ */
+function windowRegistryLayer(windows: Record<string, unknown> = {}) {
+  return Layer.mock(DesktopWindow.DesktopWindow)({
+    windowIdForWebContents: (webContentsId: number) =>
+      webContentsId === MAIN_WEB_CONTENTS_ID
+        ? DesktopWindow.MAIN_WINDOW_ID
+        : webContentsId === SECONDARY_WEB_CONTENTS_ID
+          ? SECONDARY_WINDOW_ID
+          : undefined,
+    windowForId: (windowId: string) =>
+      windows[windowId] as ReturnType<DesktopWindow.DesktopWindow["Service"]["windowForId"]>,
+    windowThreadRegistry: new WindowThreadRegistry(),
+    listWindowBounds: () => [],
+  });
+}
 
 describe("window capture IPC", () => {
   const configPreview = {
@@ -50,9 +76,7 @@ describe("window capture IPC", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.succeed(ElectronWindow.ElectronWindow, {
-            main: Effect.succeed(Option.some({ webContents: { id: 7 } })),
-          } as ElectronWindow.ElectronWindow["Service"]),
+          windowRegistryLayer({ main: { webContents: { id: MAIN_WEB_CONTENTS_ID } } }),
           Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
             previewConfig: () =>
               Effect.sync(() => {
@@ -86,9 +110,7 @@ describe("window capture IPC", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.succeed(ElectronWindow.ElectronWindow, {
-            main: Effect.succeed(Option.some({ webContents: { id: 7 } })),
-          } as ElectronWindow.ElectronWindow["Service"]),
+          windowRegistryLayer({ main: { webContents: { id: MAIN_WEB_CONTENTS_ID } } }),
           Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
             state: Effect.succeed({
               linuxBackend: "niri",
@@ -119,9 +141,7 @@ describe("window capture IPC", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.succeed(ElectronWindow.ElectronWindow, {
-            main: Effect.succeed(Option.some({ webContents: { id: 7 } })),
-          } as ElectronWindow.ElectronWindow["Service"]),
+          windowRegistryLayer({ main: { webContents: { id: MAIN_WEB_CONTENTS_ID } } }),
           Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
             state: Effect.succeed({ linuxBackend: "niri" }),
             previewConfig: (_: unknown, selected: string) =>
@@ -136,6 +156,90 @@ describe("window capture IPC", () => {
         ),
       ),
     );
+  });
+
+  it.effect("trusts every window this app created, not just main", () => {
+    const pending = [
+      {
+        id: "12345678-1234-1234-1234-123456789abc",
+        name: "capture.png",
+        mimeType: "image/png" as const,
+        sizeBytes: 1_024,
+        source: {
+          kind: "snap-shot" as const,
+          capturedAt: "2026-01-01T00:00:00.000Z",
+          appName: "T3 Code",
+          windowTitle: "Capture",
+        },
+      },
+    ];
+    const layer = Layer.mergeAll(
+      windowRegistryLayer({
+        main: { webContents: { id: MAIN_WEB_CONTENTS_ID } },
+        [SECONDARY_WINDOW_ID]: { webContents: { id: SECONDARY_WEB_CONTENTS_ID } },
+      }),
+      Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
+        listPending: Effect.succeed(pending),
+      } as unknown as DesktopSnapShot.DesktopSnapShot["Service"]),
+    );
+
+    return Effect.gen(function* () {
+      const fromMain = yield* listPendingSnapShots.handler(undefined, {
+        sender: { id: MAIN_WEB_CONTENTS_ID },
+      });
+      assert.deepEqual(fromMain, pending);
+      const fromSecondary = yield* listPendingSnapShots.handler(undefined, {
+        sender: { id: SECONDARY_WEB_CONTENTS_ID },
+      });
+      assert.deepEqual(fromSecondary, pending);
+      const fromForeign = yield* Effect.exit(
+        listPendingSnapShots.handler(undefined, { sender: { id: 999 } }),
+      );
+      assert(Exit.isFailure(fromForeign));
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("targets the calling window, not main, when placing the capture animation", () => {
+    let received: { readonly destination: { readonly frame: unknown } } | undefined;
+    const secondaryWebContents = { id: SECONDARY_WEB_CONTENTS_ID, getZoomFactor: () => 1 };
+    const layer = Layer.mergeAll(
+      windowRegistryLayer({
+        main: {
+          getContentBounds: () => ({ x: 0, y: 0, width: 1_000, height: 700 }),
+          webContents: { id: MAIN_WEB_CONTENTS_ID, getZoomFactor: () => 1 },
+        },
+        [SECONDARY_WINDOW_ID]: {
+          getContentBounds: () => ({ x: 500, y: 300, width: 1_000, height: 700 }),
+          webContents: secondaryWebContents,
+        },
+      }),
+      Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
+        setAnimationDestination: (_id: string, destination: unknown) =>
+          Effect.sync(() => {
+            received = { destination } as never;
+          }),
+      } as unknown as DesktopSnapShot.DesktopSnapShot["Service"]),
+    );
+
+    return Effect.gen(function* () {
+      yield* setSnapShotAnimationDestination.handler(
+        {
+          id: "12345678-1234-1234-1234-123456789abc",
+          viewportFrame: { x: 10, y: 20, width: 100, height: 50 },
+          backgroundColor: "rgb(20, 20, 20)",
+          borderColor: "rgba(80, 80, 80, 0.8)",
+          borderWidth: 1,
+          cornerRadius: 8,
+          details: {
+            appName: "T3 Code",
+            windowTitle: "Capture animation",
+            appIconDataUrl: "data:image/png;base64,aWNvbg==",
+          },
+        },
+        { sender: secondaryWebContents },
+      );
+      assert.deepEqual(received?.destination.frame, { x: 510, y: 320, width: 100, height: 50 });
+    }).pipe(Effect.provide(layer));
   });
 
   it("converts renderer viewport coordinates from the content origin using the window zoom", () => {
@@ -153,18 +257,13 @@ describe("window capture IPC", () => {
     let received: unknown;
     const webContents = { id: 7, getZoomFactor: () => 1.25 };
     const layer = Layer.mergeAll(
-      Layer.succeed(
-        ElectronWindow.ElectronWindow,
-        ElectronWindow.ElectronWindow.of({
-          main: Effect.succeed(
-            Option.some({
-              getBounds: () => ({ x: 100, y: 80, width: 1_000, height: 700 }),
-              getContentBounds: () => ({ x: 100, y: 118, width: 1_000, height: 662 }),
-              webContents,
-            }),
-          ),
-        } as ElectronWindow.ElectronWindow["Service"]),
-      ),
+      windowRegistryLayer({
+        main: {
+          getBounds: () => ({ x: 100, y: 80, width: 1_000, height: 700 }),
+          getContentBounds: () => ({ x: 100, y: 118, width: 1_000, height: 662 }),
+          webContents,
+        },
+      }),
       Layer.succeed(
         DesktopSnapShot.DesktopSnapShot,
         DesktopSnapShot.DesktopSnapShot.of({
@@ -213,16 +312,11 @@ describe("window capture IPC", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("forwards the accessibility permission preference from a trusted renderer", () => {
+  it.effect("forwards the accessibility permission preference from an app window", () => {
     let includeAccessibility: boolean | undefined;
     const webContents = { id: 7 };
     const layer = Layer.mergeAll(
-      Layer.succeed(
-        ElectronWindow.ElectronWindow,
-        ElectronWindow.ElectronWindow.of({
-          main: Effect.succeed(Option.some({ webContents })),
-        } as ElectronWindow.ElectronWindow["Service"]),
-      ),
+      windowRegistryLayer({ main: { webContents } }),
       Layer.succeed(
         DesktopSnapShot.DesktopSnapShot,
         DesktopSnapShot.DesktopSnapShot.of({
@@ -253,17 +347,12 @@ describe("window capture IPC", () => {
       assert.equal((error as { readonly _tag: string })._tag, "SnapShotIpcUnauthorizedSenderError");
       assert.equal((error as Error).message, "Snapshot request was rejected.");
     }).pipe(
-      Effect.provideService(
-        ElectronWindow.ElectronWindow,
-        ElectronWindow.ElectronWindow.of({
-          main: Effect.succeed(Option.some({ webContents: { id: 7 } })),
-        } as ElectronWindow.ElectronWindow["Service"]),
-      ),
+      Effect.provide(windowRegistryLayer({ main: { webContents: { id: MAIN_WEB_CONTENTS_ID } } })),
       Effect.provideService(DesktopSnapShot.DesktopSnapShot, null as never),
     ),
   );
 
-  it.effect("allows capture setup only from the trusted main renderer", () => {
+  it.effect("allows capture setup only from a renderer this app created", () => {
     const actions: string[] = [];
     return Effect.gen(function* () {
       yield* setupSnapShot.handler("install-extension", { sender: { id: 7 } });
@@ -276,9 +365,7 @@ describe("window capture IPC", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.succeed(ElectronWindow.ElectronWindow, {
-            main: Effect.succeed(Option.some({ webContents: { id: 7 } })),
-          } as ElectronWindow.ElectronWindow["Service"]),
+          windowRegistryLayer({ main: { webContents: { id: MAIN_WEB_CONTENTS_ID } } }),
           Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
             setup: (action: string) =>
               Effect.sync(() => {
@@ -292,12 +379,7 @@ describe("window capture IPC", () => {
 
   it.effect("checks shortcut availability for a trusted renderer", () => {
     const layer = Layer.mergeAll(
-      Layer.succeed(
-        ElectronWindow.ElectronWindow,
-        ElectronWindow.ElectronWindow.of({
-          main: Effect.succeed(Option.some({ webContents: { id: 7 } })),
-        } as ElectronWindow.ElectronWindow["Service"]),
-      ),
+      windowRegistryLayer({ main: { webContents: { id: MAIN_WEB_CONTENTS_ID } } }),
       Layer.succeed(
         DesktopSnapShot.DesktopSnapShot,
         DesktopSnapShot.DesktopSnapShot.of({
@@ -317,12 +399,7 @@ describe("window capture IPC", () => {
   it.effect("suppresses the active shortcut for a trusted renderer", () => {
     let suppressed = false;
     const layer = Layer.mergeAll(
-      Layer.succeed(
-        ElectronWindow.ElectronWindow,
-        ElectronWindow.ElectronWindow.of({
-          main: Effect.succeed(Option.some({ webContents: { id: 7 } })),
-        } as ElectronWindow.ElectronWindow["Service"]),
-      ),
+      windowRegistryLayer({ main: { webContents: { id: MAIN_WEB_CONTENTS_ID } } }),
       Layer.succeed(
         DesktopSnapShot.DesktopSnapShot,
         DesktopSnapShot.DesktopSnapShot.of({

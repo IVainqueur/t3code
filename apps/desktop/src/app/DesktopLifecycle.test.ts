@@ -14,6 +14,7 @@ import * as DesktopLifecycle from "./DesktopLifecycle.ts";
 import * as DesktopShutdown from "./DesktopShutdown.ts";
 import * as DesktopState from "./DesktopState.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
+import { WindowThreadRegistry } from "../window/WindowThreadRegistry.ts";
 
 function makeElectronAppLayer(
   appListeners: Map<string, (...args: readonly unknown[]) => void>,
@@ -98,6 +99,12 @@ function makeDesktopWindowLayer(
     dispatchSnapShotEvent: () => Effect.void,
     zoomMain: () => Effect.void,
     syncAppearance: Effect.void,
+    createSecondaryWindow: () => Effect.die("unexpected secondary window creation"),
+    focusWindow: () => Effect.void,
+    windowThreadRegistry: new WindowThreadRegistry(),
+    listWindowBounds: () => [],
+    windowIdForWebContents: () => undefined,
+    windowForId: () => undefined,
   });
 }
 

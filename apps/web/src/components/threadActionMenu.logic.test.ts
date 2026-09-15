@@ -156,3 +156,40 @@ describe("reminder menu items", () => {
     expect(allIds(baseState)).not.toContain("remind");
   });
 });
+
+describe("window menu items", () => {
+  const otherWindowIds = [
+    { id: "window-2", label: "Window 2" },
+    { id: "window-3", label: "Window 3" },
+  ];
+
+  it("offers 'Open in New Window' on desktop", () => {
+    expect(allIds({ ...baseState, isDesktop: true })).toContain("open-in-new-window");
+  });
+
+  it("offers 'Add to Window' with one entry per other window when any exist", () => {
+    const items = buildThreadActionMenuItems({ ...baseState, isDesktop: true, otherWindowIds });
+    const addToWindow = items.find((item) => item.id === "add-to-window");
+    expect(addToWindow?.children?.map((child) => child.id)).toEqual([
+      "add-to-window:window-2",
+      "add-to-window:window-3",
+    ]);
+  });
+
+  it("omits 'Add to Window' when no other windows are open", () => {
+    const flat = allIds({ ...baseState, isDesktop: true, otherWindowIds: [] });
+    expect(flat).not.toContain("add-to-window");
+  });
+
+  it("hides both window items outside the desktop app", () => {
+    const flat = allIds({ ...baseState, isDesktop: false, otherWindowIds });
+    expect(flat).not.toContain("open-in-new-window");
+    expect(flat).not.toContain("add-to-window");
+  });
+
+  it("hides both window items when isDesktop is unset, matching the web/chat-header caller", () => {
+    const flat = allIds(baseState);
+    expect(flat).not.toContain("open-in-new-window");
+    expect(flat).not.toContain("add-to-window");
+  });
+});

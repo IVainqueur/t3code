@@ -1,16 +1,18 @@
 import {
+  AppWindowIcon,
   ArrowLeftIcon,
   ChartNoAxesColumnIcon,
   GitPullRequestIcon,
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useCallback } from "react";
+import { cloneElement, isValidElement, memo, useCallback } from "react";
 import { Link, useCanGoBack, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
+import { focusWindow, MAIN_WINDOW_ID, useWindowRegistry } from "../../lib/windowRegistryClient";
 import { T4Wordmark } from "../T4Wordmark";
 import {
   resolveEnvironmentIdentificationPillLabel,
@@ -110,18 +112,47 @@ function SidebarUtilityItem({
   icon,
   label,
   onClick,
+  accent,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
+  /**
+   * Marks this item as something the user should notice, not just a plain
+   * utility action. Reuses the same treatment as the update-available pill
+   * right next to this menu (a surfaced background instead of the muted
+   * default, plus a small static corner dot) rather than inventing a new
+   * "pay attention to me" language for the sidebar.
+   */
+  accent?: boolean;
 }) {
   return (
     <SidebarMenuItem className="shrink-0">
       <Tooltip>
         <TooltipTrigger
           render={
-            <SidebarMenuButton aria-label={label} onClick={onClick} size="icon">
-              {icon}
+            <SidebarMenuButton
+              aria-label={label}
+              onClick={onClick}
+              size="icon"
+              className={cn(
+                accent &&
+                  "bg-sidebar-control-surface text-sidebar-foreground hover:bg-sidebar-row-hover",
+              )}
+            >
+              {accent ? (
+                <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+                  {isValidElement<{ className?: string }>(icon)
+                    ? cloneElement(icon, { className: cn("size-4", icon.props.className) })
+                    : icon}
+                  <span
+                    aria-hidden="true"
+                    className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-current ring-2 ring-sidebar-control-surface"
+                  />
+                </span>
+              ) : (
+                icon
+              )}
             </SidebarMenuButton>
           }
         />
@@ -135,6 +166,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
   const canGoBack = useCanGoBack();
   const { isMobile, setOpenMobile } = useSidebar();
+  const { isDesktop, myWindowId } = useWindowRegistry();
+  const isSecondaryWindow = isDesktop && myWindowId !== null && myWindowId !== MAIN_WINDOW_ID;
   const currentFooterPage = useLocation({
     select: (location) =>
       /^\/settings(?:\/|$)/.test(location.pathname)
@@ -186,6 +219,10 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/" });
   }, [canGoBack, closeMobileSidebar, navigate]);
 
+  const handleFocusMainWindowClick = useCallback(() => {
+    void focusWindow(MAIN_WINDOW_ID);
+  }, []);
+
   return (
     <SidebarMenu className="flex-row items-center">
       {currentFooterPage ? (
@@ -216,6 +253,14 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           />
         </>
       )}
+      {isSecondaryWindow ? (
+        <SidebarUtilityItem
+          icon={<AppWindowIcon />}
+          label="This is a secondary window. Focus the main window."
+          onClick={handleFocusMainWindowClick}
+          accent
+        />
+      ) : null}
       <SidebarUpdatePill />
     </SidebarMenu>
   );

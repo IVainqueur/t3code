@@ -8,6 +8,8 @@ import * as Ref from "effect/Ref";
 
 import * as Electron from "electron";
 
+import * as NodeCrypto from "node:crypto";
+
 import { type DesktopSnapShotEvent, DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
@@ -29,12 +31,21 @@ import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
+import { WindowThreadRegistry, type WindowId } from "./WindowThreadRegistry.ts";
 
 const TITLEBAR_HEIGHT = 40;
 const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linux
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
 const MAIN_WINDOW_BOUNDS_PERSIST_DEBOUNCE_MS = 500;
+// Secondary windows are session-only (see the spec's "no persistence across
+// relaunch" non-goal), so they never read or write the persisted main-window
+// geometry. They cascade off main instead of opening exactly on top of it.
+const SECONDARY_WINDOW_CASCADE_OFFSET = 32;
+// The well-known id of the main window in `windowThreadRegistry` /
+// `windowsById`. Downstream IPC and menu code rely on this exact string to
+// address the main window rather than a generated id.
+export const MAIN_WINDOW_ID: WindowId = "main";
 const DEVELOPMENT_LOAD_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const;
 // Renderer crash (usually V8 OOM on long sessions) recovery: reload after a
 // short delay, at most MAX_ATTEMPTS times per rolling WINDOW so a renderer
@@ -119,6 +130,40 @@ export class DesktopWindow extends Context.Service<
     // the main window.
     readonly zoomMain: (direction: MainWindowZoomDirection) => Effect.Effect<void>;
     readonly syncAppearance: Effect.Effect<void>;
+    // Opens an additional app window carrying its own thread ownership, distinct
+    // from the single main window this file otherwise assumes. Loads the same
+    // renderer bundle as the main window and registers with
+    // `windowThreadRegistry` so IPC handlers can route thread traffic to it.
+    readonly createSecondaryWindow: (
+      initialThreadKeys: ReadonlyArray<string>,
+    ) => Effect.Effect<WindowId, DesktopWindowError>;
+    // Focuses (and restores, if minimized) the specific window owning
+    // `windowId`, unlike `zoomMain`/`dispatchMenuAction` which always target
+    // `focusedMainOrFirst`.
+    readonly focusWindow: (windowId: WindowId) => Effect.Effect<void>;
+    // Exposed so IPC handlers (multi-window thread routing) can call
+    // snapshot()/assignThread()/ownerOf()/subscribe() directly.
+    readonly windowThreadRegistry: WindowThreadRegistry;
+    // Resolves the registry `WindowId` owning a renderer's webContents, so an
+    // IPC handler answering "which window is this caller?" doesn't need its
+    // own window bookkeeping alongside `windowThreadRegistry`. `undefined` for
+    // a webContents that never went through `registerWindow` (e.g. already
+    // closed, or a foreign/devtools contents).
+    readonly windowIdForWebContents: (webContentsId: number) => WindowId | undefined;
+    // The live `BrowserWindow` behind a registry `WindowId`. An IPC handler
+    // that resolved *which* window is calling still needs the window itself
+    // to read bounds, zoom, or parent a dialog, and must act on that window
+    // rather than assuming main. `undefined` once the window has closed.
+    readonly windowForId: (windowId: WindowId) => Electron.BrowserWindow | undefined;
+    // Screen-space bounds of every live registered window, in creation order.
+    // Exposed so IPC handlers can answer "which window is this screen point
+    // over?" — a native cross-window drag reports where it was released, and
+    // only the main process can map that back to a window. Destroyed windows
+    // are omitted so a caller never resolves an id `assignThread` would reject.
+    readonly listWindowBounds: () => ReadonlyArray<{
+      readonly windowId: WindowId;
+      readonly bounds: Electron.Rectangle;
+    }>;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
 
@@ -178,6 +223,30 @@ export function resolveInitialMainWindowBounds(
     return persistedBounds;
   }
   return DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE;
+}
+
+/**
+ * Where a secondary window opens. Nothing about a secondary window is
+ * persisted, so this is derived fresh every time: cascade off the main
+ * window's restored (non-maximized) position, one step per window already
+ * open, so a new window never lands exactly on top of the one it came from —
+ * which would also make "drop a thread outside every window" unreachable.
+ * Falls back to the default centered size when main's geometry is unknown.
+ */
+export function resolveSecondaryWindowBounds(
+  mainBounds: DisplayBounds | null,
+  cascadeIndex: number,
+): DesktopAppSettings.DesktopWindowBounds | typeof DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE {
+  if (mainBounds === null) {
+    return DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE;
+  }
+  const offset = SECONDARY_WINDOW_CASCADE_OFFSET * Math.max(cascadeIndex, 1);
+  return {
+    x: Math.round(mainBounds.x) + offset,
+    y: Math.round(mainBounds.y) + offset,
+    width: DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE.width,
+    height: DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE.height,
+  };
 }
 
 // A self-contained "Connecting to WSL" splash, shown immediately in wsl-only
@@ -311,6 +380,22 @@ export const make = Effect.gen(function* () {
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+  // Tracks which OS window owns which thread, and lets `focusWindow` address a
+  // specific window rather than always falling back to `focusedMainOrFirst`.
+  const windowThreadRegistry = new WindowThreadRegistry();
+  const windowsById = new Map<WindowId, Electron.BrowserWindow>();
+  const registerWindow = (
+    windowId: WindowId,
+    window: Electron.BrowserWindow,
+    initialThreadKeys: ReadonlyArray<string>,
+  ): void => {
+    windowThreadRegistry.createWindow(windowId, initialThreadKeys);
+    windowsById.set(windowId, window);
+    window.on("closed", () => {
+      windowThreadRegistry.releaseWindow(windowId);
+      windowsById.delete(windowId);
+    });
+  };
   const context = yield* Effect.context<DesktopWindowRuntimeServices>();
   const runFork = Effect.runForkWith(context);
   const runPromise = Effect.runPromiseWith(context);
@@ -342,12 +427,25 @@ export const make = Effect.gen(function* () {
   const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
   const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
 
-  const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
-    Electron.BrowserWindow,
-    DesktopWindowError
-  > {
+  const createWindow = Effect.fn("desktop.window.createWindow")(function* (input: {
+    // PreviewManager keeps a single main-window reference that gates
+    // background throttling and guest-webview host routing. Only the real
+    // main window may claim it -- a secondary window must not silently steal
+    // preview/browser-guest routing away from main.
+    readonly isMain: boolean;
+    // The thread a brand-new secondary window should open on. Passed to the
+    // renderer as a boot query parameter because a window created around one
+    // thread must show it, not land on the empty landing route with a
+    // one-row sidebar.
+    readonly initialThreadKey?: string | undefined;
+  }): Effect.fn.Return<Electron.BrowserWindow, DesktopWindowError> {
     yield* previewManager.getBrowserSession();
-    const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const applicationUrl = getDesktopUrl(
+      environment.isDevelopment,
+      input.initialThreadKey === undefined
+        ? undefined
+        : { initialThreadKey: input.initialThreadKey },
+    );
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -369,9 +467,24 @@ export const make = Effect.gen(function* () {
         : yield* logWindowWarning("failed to read connected displays; using defaults", {
             cause: displayBoundsResult.cause,
           }).pipe(Effect.as<readonly Electron.Rectangle[]>([]));
-    const initialBounds = resolveInitialMainWindowBounds(persistedBounds, displayBounds);
-    const restoredPersistedBounds = persistedBounds !== null && initialBounds === persistedBounds;
-    if (persistedBounds !== null && initialBounds === DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE) {
+    // Only the main window restores (and later persists) the saved geometry.
+    // A secondary window cascades off main and is never written back.
+    const mainWindowForCascade = input.isMain ? undefined : windowsById.get(MAIN_WINDOW_ID);
+    const initialBounds = input.isMain
+      ? resolveInitialMainWindowBounds(persistedBounds, displayBounds)
+      : resolveSecondaryWindowBounds(
+          mainWindowForCascade === undefined || mainWindowForCascade.isDestroyed()
+            ? null
+            : mainWindowForCascade.getNormalBounds(),
+          windowsById.size,
+        );
+    const restoredPersistedBounds =
+      input.isMain && persistedBounds !== null && initialBounds === persistedBounds;
+    if (
+      input.isMain &&
+      persistedBounds !== null &&
+      initialBounds === DesktopAppSettings.DEFAULT_MAIN_WINDOW_SIZE
+    ) {
       yield* logWindowWarning("saved main window bounds could not be restored; using defaults");
     }
     const window = yield* electronWindow.create({
@@ -488,9 +601,14 @@ export const make = Effect.gen(function* () {
         fiber === undefined ? Effect.void : Fiber.join(fiber).pipe(Effect.asVoid),
       ),
     );
-    flushMainWindowBounds = flushBoundsPersist;
-
-    yield* previewManager.setMainWindow(window);
+    // `flushMainWindowBounds` is a single shared slot read at quit time, and
+    // `persistCurrentBounds` writes the *main* window's saved geometry. Both
+    // belong to main alone — a secondary window claiming either would persist
+    // its own position as the user's main window position.
+    if (input.isMain) {
+      flushMainWindowBounds = flushBoundsPersist;
+      yield* previewManager.setMainWindow(window);
+    }
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -647,13 +765,15 @@ export const make = Effect.gen(function* () {
       event.preventDefault();
       window.setTitle(environment.displayName);
     });
-    window.on("resize", scheduleBoundsPersist);
-    window.on("move", scheduleBoundsPersist);
-    window.on("maximize", scheduleBoundsPersist);
-    window.on("unmaximize", scheduleBoundsPersist);
-    window.on("close", () => {
-      runFork(flushBoundsPersist);
-    });
+    if (input.isMain) {
+      window.on("resize", scheduleBoundsPersist);
+      window.on("move", scheduleBoundsPersist);
+      window.on("maximize", scheduleBoundsPersist);
+      window.on("unmaximize", scheduleBoundsPersist);
+      window.on("close", () => {
+        runFork(flushBoundsPersist);
+      });
+    }
 
     if (environment.platform === "darwin") {
       window.on("enter-full-screen", () => {
@@ -797,7 +917,7 @@ export const make = Effect.gen(function* () {
       }
       // Reveal the real window, then close the connecting splash (if any) so the
       // two don't overlap and there's no blank gap between them.
-      if (persistedSettings.mainWindowMaximized) {
+      if (input.isMain && persistedSettings.mainWindowMaximized) {
         window.maximize();
       }
       void runPromise(Effect.andThen(electronWindow.reveal(window), dismissConnectingSplash));
@@ -812,17 +932,74 @@ export const make = Effect.gen(function* () {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
       void runPromise(electronWindow.clearMain(Option.some(window)));
+      // Closing main quits the whole app, secondary windows included
+      // (deliberately non-standard on macOS). Without this the app survives
+      // with only secondary windows open, and every "the main window"
+      // resolver silently promotes a secondary window into main's role — the
+      // one place the user is guaranteed to find every thread.
+      if (input.isMain) {
+        void runPromise(
+          logWindowInfo("main window closed; quitting").pipe(Effect.andThen(electronApp.quit)),
+        );
+      }
     });
 
     return window;
   });
 
   const createMain = Effect.gen(function* () {
-    const window = yield* createWindow();
+    const window = yield* createWindow({ isMain: true });
     yield* electronWindow.setMain(window);
+    registerWindow(MAIN_WINDOW_ID, window, []);
     yield* logWindowInfo("main window created");
     return window;
   }).pipe(Effect.withSpan("desktop.window.createMain"));
+
+  const createSecondaryWindow = Effect.fn("desktop.window.createSecondaryWindow")(function* (
+    initialThreadKeys: ReadonlyArray<string>,
+  ) {
+    const window = yield* createWindow({
+      isMain: false,
+      ...(initialThreadKeys[0] === undefined ? {} : { initialThreadKey: initialThreadKeys[0] }),
+    });
+    const windowId: WindowId = NodeCrypto.randomUUID();
+    registerWindow(windowId, window, initialThreadKeys);
+    yield* logWindowInfo("secondary window created", { windowId });
+    return windowId;
+  });
+
+  const windowIdForWebContents = (webContentsId: number): WindowId | undefined => {
+    for (const [windowId, window] of windowsById) {
+      if (!window.isDestroyed() && window.webContents.id === webContentsId) {
+        return windowId;
+      }
+    }
+    return undefined;
+  };
+
+  const windowForId = (windowId: WindowId): Electron.BrowserWindow | undefined => {
+    const window = windowsById.get(windowId);
+    return window === undefined || window.isDestroyed() ? undefined : window;
+  };
+
+  const listWindowBounds = () => {
+    const entries: { windowId: WindowId; bounds: Electron.Rectangle }[] = [];
+    for (const [windowId, window] of windowsById) {
+      if (window.isDestroyed()) continue;
+      entries.push({ windowId, bounds: window.getBounds() });
+    }
+    return entries;
+  };
+
+  const focusWindow = Effect.fn("desktop.window.focusWindow")(function* (windowId: WindowId) {
+    yield* Effect.annotateCurrentSpan({ windowId });
+    const window = windowForId(windowId);
+    if (window === undefined) return;
+    if (window.isMinimized()) {
+      window.restore();
+    }
+    window.focus();
+  });
 
   const ensureMain = Effect.gen(function* () {
     const existingWindow = yield* currentMainWindow;
@@ -995,6 +1172,12 @@ export const make = Effect.gen(function* () {
         syncWindowAppearance(window, shouldUseDarkColors, environment.platform),
       );
     }).pipe(Effect.withSpan("desktop.window.syncAppearance")),
+    createSecondaryWindow,
+    focusWindow,
+    windowThreadRegistry,
+    windowIdForWebContents,
+    windowForId,
+    listWindowBounds,
   });
 });
 

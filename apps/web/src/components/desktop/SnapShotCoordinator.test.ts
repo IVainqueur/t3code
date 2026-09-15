@@ -15,6 +15,7 @@ import {
   dismissFailedSnapShot,
   resolveExistingSnapShotTarget,
   resolveSnapShotTargetOnce,
+  resolveSnapShotBridgeForWindow,
   resolveSnapShotDeliveryTarget,
 } from "./SnapShotCoordinator";
 import {
@@ -349,6 +350,37 @@ describe("durable snapshot delivery", () => {
       }
     },
   );
+});
+
+describe("snapshot delivery window", () => {
+  const installBridge = () => {
+    const bridge = {
+      requestSnapShotPermissions: vi.fn(),
+      getSnapShotState: vi.fn(),
+      checkSnapShotShortcut: vi.fn(),
+      setSnapShotShortcutSuppressed: vi.fn(),
+      listPendingSnapShots: vi.fn(),
+      readSnapShot: vi.fn(),
+      acknowledgeSnapShot: vi.fn(),
+      onSnapShotEvent: vi.fn(),
+    };
+    vi.stubGlobal("window", { localStorage: storage, desktopBridge: bridge });
+    return bridge;
+  };
+
+  it("hands the main window and non-desktop clients the real bridge", () => {
+    const bridge = installBridge();
+    expect(resolveSnapShotBridgeForWindow("main")).toBe(bridge);
+    expect(resolveSnapShotBridgeForWindow(null)).toBe(bridge);
+  });
+
+  // Every window mounts the coordinator, so without this a second window would
+  // drain the same pending captures and deliver them into whatever thread it
+  // happens to show. Main stays the sole deliverer.
+  it("withholds the bridge from a secondary window, so it never drains or acknowledges", () => {
+    installBridge();
+    expect(resolveSnapShotBridgeForWindow("secondary-window-1")).toBeUndefined();
+  });
 });
 
 describe("snapshot destination ownership", () => {

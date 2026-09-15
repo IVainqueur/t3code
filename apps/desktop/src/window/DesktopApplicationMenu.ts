@@ -109,6 +109,10 @@ export const make = Effect.gen(function* () {
   const electronMenu = yield* ElectronMenu.ElectronMenu;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const appName = yield* electronApp.name;
+  // Resolved here rather than inside `configure`: the service's `configure`
+  // is declared with no remaining requirements, so acquiring DesktopWindow
+  // inside it would leak that requirement into the returned Effect.
+  const desktopWindow = yield* DesktopWindow.DesktopWindow;
   const context = yield* Effect.context<DesktopApplicationMenuRuntimeServices>();
   const runPromise = Effect.runPromiseWith(context);
 
@@ -137,6 +141,9 @@ export const make = Effect.gen(function* () {
     };
     const zoomClick = (direction: DesktopWindow.MainWindowZoomDirection) => () => {
       runMenuEffect(`zoom-${direction}`, zoomMainWindow(direction));
+    };
+    const newWindowClick = () => {
+      runMenuEffect("new-window", desktopWindow.createSecondaryWindow([]));
     };
     const template: Electron.MenuItemConstructorOptions[] = [];
 
@@ -181,6 +188,11 @@ export const make = Effect.gen(function* () {
                 },
                 { type: "separator" as const },
               ]),
+          {
+            label: "New Window",
+            accelerator: "CmdOrCtrl+Shift+N",
+            click: newWindowClick,
+          },
           { role: environment.platform === "darwin" ? "close" : "quit" },
         ],
       },

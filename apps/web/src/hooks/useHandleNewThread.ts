@@ -1,10 +1,17 @@
 import { useAtomValue } from "@effect/atom-react";
 import {
   scopedProjectKey,
+  scopedThreadKey,
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { DEFAULT_SERVER_SETTINGS, type ScopedProjectRef, type ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_RUNTIME_MODE,
+  DEFAULT_SERVER_SETTINGS,
+  type EnvironmentId,
+  type ScopedProjectRef,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
@@ -31,6 +38,7 @@ import {
   resolveNewThreadModelSelectionOverride,
 } from "../lib/chatThreadActions";
 import { readT3ProjectFileDefaultThreadEnvMode } from "../lib/t3ProjectFileDefaults";
+import { addThreadToWindow, useWindowRegistry } from "../lib/windowRegistryClient";
 import { environmentServerConfigsAtom } from "../state/server";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -58,11 +66,27 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
 export function useNewThreadHandler() {
   const environmentServerConfigs = useAtomValue(environmentServerConfigsAtom);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const { myWindowId } = useWindowRegistry();
   const router = useRouter();
   const getCurrentRouteTarget = useCallback(() => {
     const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
     return resolveThreadRouteTarget(currentRouteParams);
   }, [router]);
+  // A thread newly minted from inside a secondary window should join that
+  // window's set rather than default to "unowned" in main. Shared by the
+  // mint-fresh path and the raced-draft path below — both can be the point
+  // where a secondary window's request resolves to a genuinely new thread.
+  const joinCreatingWindow = useCallback(
+    (environmentId: EnvironmentId, joinedThreadId: ThreadId) => {
+      if (myWindowId && myWindowId !== "main") {
+        void addThreadToWindow(
+          scopedThreadKey(scopeThreadRef(environmentId, joinedThreadId)),
+          myWindowId,
+        );
+      }
+    },
+    [myWindowId],
+  );
 
   return useCallback(
     (
@@ -312,6 +336,11 @@ export function useNewThreadHandler() {
             draftId: emptyStoredDraftThread.draftId,
             threadId: emptyStoredDraftThread.threadId,
           };
+          // Reusing a draft is still "the user asked this window for a new
+          // thread", so the resulting thread joins this window exactly as a
+          // freshly minted one does. The remap above already pointed the
+          // draft at projectRef, so that is the environment it lands in.
+          joinCreatingWindow(projectRef.environmentId, emptyStoredDraftThread.threadId);
           // Re-read the route: the snapshot from before the await is stale
           // once a concurrent invocation's navigation lands, and navigating
           // again would push a duplicate history entry.
@@ -355,6 +384,7 @@ export function useNewThreadHandler() {
           interactionMode: latestActiveDraftThread.interactionMode,
           ...pickExplicitWorkspaceOptions(options),
         });
+        joinCreatingWindow(projectRef.environmentId, latestActiveDraftThread.threadId);
         return Promise.resolve({
           draftId: currentRouteTarget.draftId,
           threadId: latestActiveDraftThread.threadId,
@@ -403,6 +433,7 @@ export function useNewThreadHandler() {
             params: { draftId: racedDraft.draftId },
             replace: options?.replace ?? false,
           });
+          joinCreatingWindow(racedDraft.environmentId, racedDraft.threadId);
           return { draftId: racedDraft.draftId, threadId: racedDraft.threadId };
         }
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
@@ -432,10 +463,17 @@ export function useNewThreadHandler() {
           params: { draftId },
           replace: options?.replace ?? false,
         });
+        joinCreatingWindow(projectRef.environmentId, threadId);
         return { draftId, threadId };
       })();
     },
-    [environmentServerConfigs, getCurrentRouteTarget, projectGroupingSettings, router],
+    [
+      environmentServerConfigs,
+      getCurrentRouteTarget,
+      joinCreatingWindow,
+      projectGroupingSettings,
+      router,
+    ],
   );
 }
 

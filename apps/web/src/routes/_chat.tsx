@@ -1,6 +1,12 @@
-import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
+import { Outlet, createFileRoute, redirect, useParams, useRouter } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo } from "react";
+
+import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
+
+import { resolveDisplacedThreadNavigation } from "../components/Sidebar.logic";
+import { useWindowRegistry } from "../lib/windowRegistryClient";
+import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
 import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
@@ -174,10 +180,52 @@ function ChatRouteGlobalShortcuts() {
   return null;
 }
 
+/**
+ * Keeps every window's content pane honest: when the thread it is displaying
+ * is handed to another window, the sidebar stops offering the row but the
+ * route does not, so the pane would keep rendering a thread this window no
+ * longer owns. The decision itself lives in Sidebar.logic so it reads the
+ * same ownership rules the sidebar does.
+ */
+function DisplacedThreadRedirect() {
+  const { myThreadKeys, myWindowId, ownerByThreadKey } = useWindowRegistry();
+  const routeThreadRef = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteRef(params),
+  });
+  const router = useRouter();
+  const routedThreadKey = routeThreadRef === null ? null : scopedThreadKey(routeThreadRef);
+  const target = resolveDisplacedThreadNavigation({
+    ownerByThreadKey,
+    myWindowId,
+    myThreadKeys,
+    routedThreadKey,
+  });
+  const targetThreadKey = target?.kind === "thread" ? target.threadKey : null;
+  const shouldLeave = target !== null;
+
+  useEffect(() => {
+    if (!shouldLeave) return;
+    const nextThreadRef = targetThreadKey === null ? null : parseScopedThreadKey(targetThreadKey);
+    if (nextThreadRef === null) {
+      void router.navigate({ to: "/", replace: true });
+      return;
+    }
+    void router.navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(nextThreadRef),
+      replace: true,
+    });
+  }, [router, shouldLeave, targetThreadKey]);
+
+  return null;
+}
+
 function ChatRouteLayout() {
   return (
     <>
       <ChatRouteGlobalShortcuts />
+      <DisplacedThreadRedirect />
       <Outlet />
     </>
   );

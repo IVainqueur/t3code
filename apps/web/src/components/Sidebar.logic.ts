@@ -636,6 +636,94 @@ export function isTrailingDoubleClick(detail: number): boolean {
   return detail > 1;
 }
 
+/**
+ * A thread whose owning window differs from ours redirects clicks there
+ * instead of navigating locally. Returns the window id to focus, or null
+ * when the thread is unowned or already owned by this window (so the main
+ * window's own clicks, and clicks inside the window that actually owns the
+ * thread, both fall through to normal navigation).
+ */
+export function resolveThreadWindowRedirect(
+  ownerByThreadKey: ReadonlyMap<string, string>,
+  myWindowId: string | null,
+  threadKey: string,
+): string | null {
+  const owner = ownerByThreadKey.get(threadKey);
+  if (owner === undefined || owner === myWindowId) return null;
+  return owner;
+}
+
+/** Boolean sugar over resolveThreadWindowRedirect for rows that only need to
+    decide whether to show the "owned elsewhere" indicator, not which window
+    to focus. Every activation path (click, keyboard, PR badge, search
+    selection) and every indicator (sidebar row, search result row) reads off
+    this same pair of functions so a thread's owned-elsewhere status can't
+    read differently depending on which entry point asks. */
+export function isThreadOwnedByAnotherWindow(
+  ownerByThreadKey: ReadonlyMap<string, string>,
+  myWindowId: string | null,
+  threadKey: string,
+): boolean {
+  return resolveThreadWindowRedirect(ownerByThreadKey, myWindowId, threadKey) !== null;
+}
+
+/**
+ * Secondary windows (myWindowId set and not "main") only ever render the
+ * threads assigned to them. The main window, and any non-desktop client
+ * (myWindowId null), render every thread as before — one shared filter
+ * applied uniformly regardless of which section a thread lives in.
+ */
+export function filterSidebarThreadsForWindow<T>(
+  threads: readonly T[],
+  keyOf: (thread: T) => string,
+  myWindowId: string | null,
+  myThreadKeys: ReadonlySet<string>,
+): readonly T[] {
+  if (myWindowId === null || myWindowId === "main") return threads;
+  return threads.filter((thread) => myThreadKeys.has(keyOf(thread)));
+}
+
+export type DisplacedThreadNavigation =
+  | { readonly kind: "thread"; readonly threadKey: string }
+  | { readonly kind: "landing" };
+
+/**
+ * Where a window must navigate when the thread its content pane is showing
+ * gets reassigned to a different window out from under it. The sidebar
+ * already drops the row (filterSidebarThreadsForWindow) or marks it owned
+ * elsewhere, so without this the pane would keep rendering a thread this
+ * window no longer owns.
+ *
+ * "No longer mine" reuses resolveThreadWindowRedirect: only a thread now
+ * owned by ANOTHER window displaces the route. A thread with no owner yet —
+ * a thread this window just created, before its assignment round-trips —
+ * stays put.
+ *
+ * The fallback differs by window. A secondary window renders exactly
+ * myThreadKeys, so the next thread in that bounded set is a sensible landing
+ * spot. The main window's myThreadKeys is only its explicit assignments, not
+ * the (much larger, unavailable here) set of threads it implicitly shows, so
+ * guessing a replacement from it would be wrong; main goes to the landing
+ * route and picks from the full list there.
+ */
+export function resolveDisplacedThreadNavigation(input: {
+  readonly ownerByThreadKey: ReadonlyMap<string, string>;
+  readonly myWindowId: string | null;
+  readonly myThreadKeys: ReadonlySet<string>;
+  readonly routedThreadKey: string | null;
+}): DisplacedThreadNavigation | null {
+  const { myThreadKeys, myWindowId, ownerByThreadKey, routedThreadKey } = input;
+  if (myWindowId === null || routedThreadKey === null) return null;
+  if (resolveThreadWindowRedirect(ownerByThreadKey, myWindowId, routedThreadKey) === null) {
+    return null;
+  }
+  if (myWindowId === "main") return { kind: "landing" };
+  for (const threadKey of myThreadKeys) {
+    if (threadKey !== routedThreadKey) return { kind: "thread", threadKey };
+  }
+  return { kind: "landing" };
+}
+
 function nodeClosest(node: object | null, selector: string): unknown {
   if (node === null || !("closest" in node) || typeof node.closest !== "function") return null;
   return node.closest(selector);

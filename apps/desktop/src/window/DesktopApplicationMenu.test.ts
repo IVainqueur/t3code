@@ -15,6 +15,7 @@ import * as DesktopConfig from "../app/DesktopConfig.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopUpdates from "../updates/DesktopUpdates.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
+import { WindowThreadRegistry } from "./WindowThreadRegistry.ts";
 
 const environmentInput = {
   dirname: "/repo/apps/desktop/dist-electron",
@@ -90,6 +91,16 @@ const makeDesktopWindowLayer = (selectedAction: Deferred.Deferred<string>) =>
     zoomMain: (direction) =>
       Deferred.succeed(selectedAction, `zoom-${direction}`).pipe(Effect.asVoid),
     syncAppearance: Effect.void,
+    createSecondaryWindow: () =>
+      Deferred.succeed(selectedAction, "new-window").pipe(
+        Effect.asVoid,
+        Effect.map(() => "window-1" as any),
+      ),
+    focusWindow: () => Effect.void,
+    windowThreadRegistry: new WindowThreadRegistry(),
+    listWindowBounds: () => [],
+    windowIdForWebContents: () => undefined,
+    windowForId: () => undefined,
   } satisfies DesktopWindow.DesktopWindow["Service"]);
 
 const makeElectronMenuLayer = (
@@ -150,6 +161,33 @@ describe("DesktopApplicationMenu", () => {
 
       settingsClick({} as Electron.MenuItem, {} as Electron.BrowserWindow, {} as KeyboardEvent);
       assert.equal(yield* Deferred.await(selectedAction), "open-settings");
+    }),
+  );
+
+  it.effect("adds New Window menu item that calls createSecondaryWindow", () =>
+    Effect.gen(function* () {
+      const selectedAction = yield* Deferred.make<string>();
+      const applicationMenuTemplate =
+        yield* Deferred.make<readonly Electron.MenuItemConstructorOptions[]>();
+
+      yield* configureMenu(selectedAction, applicationMenuTemplate);
+
+      const template = yield* Deferred.await(applicationMenuTemplate);
+      const fileMenu = template.find((item) => item.label === "File");
+      assert.isDefined(fileMenu);
+      if (!Array.isArray(fileMenu.submenu)) {
+        throw new Error("Expected File menu submenu to be an array.");
+      }
+      const newWindowItem = fileMenu.submenu.find((item) => item.label === "New Window");
+      assert.isDefined(newWindowItem);
+      assert.equal(newWindowItem.accelerator, "CmdOrCtrl+Shift+N");
+      const newWindowClick = newWindowItem.click;
+      if (typeof newWindowClick !== "function") {
+        throw new Error("Expected New Window menu item to have a click handler.");
+      }
+
+      newWindowClick({} as Electron.MenuItem, {} as Electron.BrowserWindow, {} as KeyboardEvent);
+      assert.equal(yield* Deferred.await(selectedAction), "new-window");
     }),
   );
 

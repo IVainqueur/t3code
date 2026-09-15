@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { act, createElement, StrictMode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
+import { THREAD_WINDOW_DRAG_TYPE } from "./Sidebar.windowDrag";
 
 class TestDocument extends EventTarget {
   hidden = false;
@@ -184,6 +185,37 @@ describe("sidebar pointer lifecycle", () => {
     expect(drag.onCancel).toHaveBeenCalledOnce();
     expect(drag.onEnd).not.toHaveBeenCalled();
     expect(drag.onFinish).toHaveBeenCalledOnce();
+  });
+
+  const dragstart = (altKey: boolean, types: ReadonlyArray<string>) =>
+    Object.assign(new Event("dragstart", { cancelable: true }), {
+      altKey,
+      dataTransfer: { types },
+    });
+
+  it.each([
+    ["an unmodified row drag", false, [THREAD_WINDOW_DRAG_TYPE]],
+    ["a modifier-held file drag", true, ["Files"]],
+    ["a text selection drag", false, ["text/plain"]],
+  ])("blocks the native drag for %s so the sort gesture survives", (_name, altKey, types) => {
+    const drag = gesture();
+    const event = dragstart(altKey, types);
+    document.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(drag.onCancel).not.toHaveBeenCalled();
+    expect(drag.onFinish).not.toHaveBeenCalled();
+  });
+
+  it("yields to a modifier-held cross-window thread drag by abandoning the sort", () => {
+    const drag = gesture();
+    const event = dragstart(true, [THREAD_WINDOW_DRAG_TYPE]);
+    document.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(drag.onCancel).toHaveBeenCalledOnce();
+    expect(drag.onFinish).toHaveBeenCalledOnce();
+    // The sort is over: later pointer movement must not start a drag.
+    document.dispatchEvent(pointer("pointermove", { clientY: 100 }));
+    expect(drag.onStart).not.toHaveBeenCalled();
   });
 
   it("detaches a cancelled sensor before a replacement gesture starts", () => {

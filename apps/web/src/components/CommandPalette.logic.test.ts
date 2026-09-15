@@ -7,6 +7,7 @@ import {
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
+  buildWindowActionItems,
   enumerateCommandPaletteItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
@@ -737,4 +738,83 @@ it.each([
   expect(groups.flatMap((group) => group.items.map((item) => item.title))).toEqual([
     "Implementation",
   ]);
+});
+
+describe("buildWindowActionItems", () => {
+  const baseInput = {
+    isDesktop: true,
+    threadKey: "environmentId:threadId",
+    otherWindows: [] as ReadonlyArray<{ readonly id: string; readonly label: string }>,
+    openInNewWindowIcon: null,
+    addToWindowIcon: null,
+    addToWindowAddonIcon: null,
+    openThreadInNewWindow: vi.fn(async () => {}),
+    addThreadToWindow: vi.fn(async () => {}),
+  };
+
+  it("includes the open-in-new-window action when desktop and a thread is active", () => {
+    const items = buildWindowActionItems(baseInput);
+    expect(items.some((item) => item.value === "action:open-thread-in-new-window")).toBe(true);
+  });
+
+  it("calls openThreadInNewWindow with the active thread's key when run", async () => {
+    const openThreadInNewWindow = vi.fn(async () => {});
+    const items = buildWindowActionItems({ ...baseInput, openThreadInNewWindow });
+    const openItem = items.find((item) => item.value === "action:open-thread-in-new-window");
+    expect(openItem?.kind).toBe("action");
+    if (openItem?.kind !== "action") throw new Error("expected action item");
+    await openItem.run();
+    expect(openThreadInNewWindow).toHaveBeenCalledWith("environmentId:threadId");
+  });
+
+  it("builds an add-to-window submenu with one entry per other window", async () => {
+    const addThreadToWindow = vi.fn(async () => {});
+    const items = buildWindowActionItems({
+      ...baseInput,
+      otherWindows: [
+        { id: "main", label: "Main Window" },
+        { id: "window-b", label: "Window 2" },
+      ],
+      addThreadToWindow,
+    });
+    const submenu = items.find((item) => item.value === "action:add-thread-to-window");
+    expect(submenu?.kind).toBe("submenu");
+    if (submenu?.kind !== "submenu") throw new Error("expected submenu item");
+    const windowItems = submenu.groups.flatMap((group) => group.items);
+    expect(windowItems.map((item) => item.value)).toEqual([
+      "action:add-thread-to-window:main",
+      "action:add-thread-to-window:window-b",
+    ]);
+    // Labels come from the shared derivation, so main is named rather than
+    // numbered and a secondary window keeps its own number.
+    expect(windowItems.map((item) => item.title)).toEqual(["Main Window", "Window 2"]);
+    const firstWindowItem = windowItems[0];
+    expect(firstWindowItem?.kind).toBe("action");
+    if (firstWindowItem?.kind !== "action") throw new Error("expected action item");
+    await firstWindowItem.run();
+    expect(addThreadToWindow).toHaveBeenCalledWith("environmentId:threadId", "main");
+  });
+
+  it("omits the add-to-window submenu when there are no other windows", () => {
+    const items = buildWindowActionItems({ ...baseInput, otherWindows: [] });
+    expect(items.some((item) => item.value === "action:add-thread-to-window")).toBe(false);
+  });
+
+  it("produces no items when not on desktop", () => {
+    const items = buildWindowActionItems({
+      ...baseInput,
+      isDesktop: false,
+      otherWindows: [{ id: "window-a", label: "Window 1" }],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it("produces no items when there is no active thread", () => {
+    const items = buildWindowActionItems({
+      ...baseInput,
+      threadKey: null,
+      otherWindows: [{ id: "window-a", label: "Window 1" }],
+    });
+    expect(items).toEqual([]);
+  });
 });

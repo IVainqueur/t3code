@@ -16,9 +16,9 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import type * as Electron from "electron";
 
-import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as DesktopSnapShot from "../../snapShot/DesktopSnapShot.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 
@@ -31,17 +31,25 @@ class SnapShotIpcUnauthorizedSenderError extends Schema.TaggedError<SnapShotIpcU
   }
 }
 
+/**
+ * Any window this app created is a trusted snapshot caller — secondary
+ * windows load the same app shell as main and poll for pending snapshots on
+ * mount. Trust is "did `registerWindow` ever see this webContents", not "is
+ * this literally main", and the caller's own window comes back so snapshot
+ * work lands on whichever window asked.
+ */
 const ensureTrustedSnapShotSender = Effect.fn("desktop.ipc.snapShot.ensureTrustedSender")(
   function* (event: DesktopIpc.DesktopIpcInvokeEvent | undefined) {
-    const main = yield* (yield* ElectronWindow.ElectronWindow).main;
-    if (
-      event === undefined ||
-      Option.isNone(main) ||
-      main.value.webContents.id !== event.sender.id
-    ) {
+    if (event === undefined) {
       return yield* new SnapShotIpcUnauthorizedSenderError();
     }
-    return main.value;
+    const desktopWindow = yield* DesktopWindow.DesktopWindow;
+    const windowId = desktopWindow.windowIdForWebContents(event.sender.id);
+    const window = windowId === undefined ? undefined : desktopWindow.windowForId(windowId);
+    if (window === undefined) {
+      return yield* new SnapShotIpcUnauthorizedSenderError();
+    }
+    return window;
   },
 );
 

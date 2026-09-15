@@ -49,6 +49,7 @@ import {
   CircleCheckIcon,
   CircleDashedIcon,
   ClockIcon,
+  ExternalLinkIcon,
   FolderIcon,
   GitBranchIcon,
   PinIcon,
@@ -76,6 +77,13 @@ import {
 import { useParams, useRouter } from "@tanstack/react-router";
 
 import { useRightPanelStore } from "../rightPanelStore";
+import {
+  addThreadToWindow,
+  focusWindowForThread,
+  handleThreadDroppedOutsideWindow,
+  openThreadInNewWindow,
+  useWindowRegistry,
+} from "../lib/windowRegistryClient";
 import {
   isAtomCommandInterrupted,
   settlePromise,
@@ -154,6 +162,7 @@ import {
   buildBulkUnpinContextMenuItem,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
+  filterSidebarThreadsForWindow,
   formatWorkingDurationLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
@@ -166,7 +175,9 @@ import {
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
   type SidebarDropVerb,
+  isThreadOwnedByAnotherWindow,
   resolveSidebarThreadStatus,
+  resolveThreadWindowRedirect,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldRecedeSidebarThread,
@@ -191,6 +202,7 @@ import {
   restrictBelowSidebarLabel,
 } from "./Sidebar.drag";
 import { SidebarDragLifecycle, SidebarPointerSensor } from "./Sidebar.pointer";
+import { makeSidebarWindowDropHandlers, makeThreadWindowDragHandlers } from "./Sidebar.windowDrag";
 import { createSidebarListMotion } from "./Sidebar.motion";
 import {
   ThreadPullRequestBadgeControl,
@@ -1087,6 +1099,15 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   ),
 };
 
+// Shared by every row variant: the drag itself carries the thread key, so
+// nothing here is per-row and one module-level host keeps the row handlers
+// referentially stable.
+const threadWindowDragHost = {
+  onDroppedOutsideWindow(threadKey: string, screenPoint: { x: number; y: number }) {
+    void handleThreadDroppedOutsideWindow(threadKey, screenPoint);
+  },
+};
+
 const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   thread: SidebarThreadSummary;
   variant: "card" | "slim";
@@ -1102,6 +1123,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // rows. The marker can unpin the thread when the server supports pinning.
   pinningSupported: boolean;
   isPinned: boolean;
+  // Set when a different desktop window currently owns this thread. Clicking
+  // the row redirects there instead of navigating locally (handled by the
+  // parent's onThreadClick); this only controls the row's own indicator.
+  isOwnedElsewhere: boolean;
+  // True on desktop, where other windows exist to drag a thread into. Passed
+  // down rather than read per row: the window registry changes on every
+  // window event, and rows must not all re-render for that.
+  isDesktopHost: boolean;
   // Present on rows whose server supports every drop outcome: dnd-kit
   // sortable bag applied to the row root so the whole row drags (the
   // pointer sensor's distance constraint keeps plain clicks working).
@@ -1468,6 +1497,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         : null,
     [onFileDropThreads, threadRef],
   );
+  const windowDragHandlers = useMemo(
+    () =>
+      makeThreadWindowDragHandlers({
+        isDesktop: props.isDesktopHost,
+        threadKey,
+        host: threadWindowDragHost,
+      }),
+    [props.isDesktopHost, threadKey],
+  );
   // A drop lands on a child or outside the window entirely, so dragend is
   // the reset of last resort for the row's highlight.
   useEffect(() => {
@@ -1778,6 +1816,26 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       />
     )
   ) : null;
+  // Owned-elsewhere threads redirect clicks to the window that has them
+  // open; this is the only visible cue for that, so it renders even while
+  // the pin marker or other status hues are also present.
+  const ownedElsewhereIndicator = props.isOwnedElsewhere ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            role="img"
+            aria-label="Open in another window"
+            data-testid={`sidebar-owned-elsewhere-indicator-${thread.id}`}
+            className="inline-flex shrink-0 items-center"
+          />
+        }
+      >
+        <ExternalLinkIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/65" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">Open in another window</TooltipPopup>
+    </Tooltip>
+  ) : null;
 
   if (variant === "slim") {
     return (
@@ -1785,6 +1843,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         data-thread-item
         {...sortableRootProps}
         {...(fileDropHandlers ?? {})}
+        {...(windowDragHandlers ?? {})}
         className={cn(
           // Matches the h-9 row so unrendered rows never shift the list when they paint.
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_36px]",
@@ -1822,6 +1881,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {draftIndicator}
             {title}
             {pinIndicator}
+            {ownedElsewhereIndicator}
             {terminalStatusIcon}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
@@ -1938,6 +1998,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       data-thread-item
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
+      {...(windowDragHandlers ?? {})}
       className={cn(
         // Matches the h-[4.875rem] content box; the py-0.5 padding is added on top.
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_78px]",
@@ -1980,6 +2041,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 <span className="flex-1" />
               )}
               {pinIndicator}
+              {ownedElsewhereIndicator}
               {/* The visible state owns this slot's width: status at rest,
                   actions on hover/keyboard focus or while the popover is open. Keeping
                   the hidden state out of flow lets the project label reclaim
@@ -2229,6 +2291,8 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   providerEntryByInstanceId: ReadonlyMap<string, ProviderInstanceEntry>;
   isHighlighted: boolean;
   isRouteActive: boolean;
+  isOwnedElsewhere: boolean;
+  isDesktopHost: boolean;
   resultId: string;
   onHighlight: () => void;
   onSelect: () => void;
@@ -2290,6 +2354,15 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
       }),
     [props.onFileDropThreads, threadRef],
   );
+  const windowDragHandlers = useMemo(
+    () =>
+      makeThreadWindowDragHandlers({
+        isDesktop: props.isDesktopHost,
+        threadKey: scopedThreadKey(threadRef),
+        host: threadWindowDragHost,
+      }),
+    [props.isDesktopHost, threadRef],
+  );
   useEffect(() => {
     if (!isFileDragOver) return;
     const clearFileDrag = () => setIsFileDragOver(false);
@@ -2297,7 +2370,12 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
     return () => window.removeEventListener("dragend", clearFileDrag);
   }, [isFileDragOver]);
   return (
-    <li role="presentation" className="list-none" {...fileDropHandlers}>
+    <li
+      role="presentation"
+      className="list-none"
+      {...fileDropHandlers}
+      {...(windowDragHandlers ?? {})}
+    >
       <Tooltip>
         <TooltipTrigger
           render={
@@ -2333,6 +2411,14 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
             <ProjectFavicon project={props.project} className="size-4 shrink-0" />
           ) : null}
           <span className="min-w-0 flex-1 truncate">{thread.title}</span>
+          {props.isOwnedElsewhere ? (
+            <ExternalLinkIcon
+              aria-label="Open in another window"
+              role="img"
+              data-testid={`sidebar-search-owned-elsewhere-indicator-${thread.id}`}
+              className="size-3 shrink-0 text-muted-foreground/65"
+            />
+          ) : null}
           <span className="shrink-0 text-xs text-muted-foreground/55 tabular-nums">
             {threadTimeLabel(thread)}
           </span>
@@ -2360,6 +2446,23 @@ export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
+  const windowRegistry = useWindowRegistry();
+  // Lets a thread dragged out of another window land anywhere in this
+  // window's sidebar. Main takes drops too, so a detached thread has a way
+  // home and the cursor never claims a drop will fail when it will not.
+  const windowDropHandlers = useMemo(
+    () =>
+      makeSidebarWindowDropHandlers({
+        isDesktop: windowRegistry.isDesktop,
+        myWindowId: windowRegistry.myWindowId,
+        host: {
+          addThreadToWindow: (threadKey, windowId) => {
+            void addThreadToWindow(threadKey, windowId);
+          },
+        },
+      }),
+    [windowRegistry.isDesktop, windowRegistry.myWindowId],
+  );
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -2800,11 +2903,19 @@ export default function Sidebar() {
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
+    const scopedVisible = threads.filter(
       (thread) =>
         thread.archivedAt === null &&
         (scopedProjectKeys === null ||
           scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
+    );
+    // Secondary desktop windows only ever show the threads assigned to them;
+    // the main window and non-desktop clients see everything, as before.
+    const visible = filterSidebarThreadsForWindow(
+      scopedVisible,
+      (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      windowRegistry.myWindowId,
+      windowRegistry.myThreadKeys,
     );
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
@@ -2921,6 +3032,7 @@ export default function Sidebar() {
     snoozeWakeTick,
     threadRemindAtById,
     threads,
+    windowRegistry,
   ]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
@@ -3149,6 +3261,28 @@ export default function Sidebar() {
     [clearSelection, isMobile, router, setOpenMobile, setSelectionAnchor],
   );
 
+  // Every path that opens a thread from the sidebar (click, keyboard
+  // activation, PR badge/stack activation, search selection) must agree on
+  // this: a thread owned by another desktop window redirects there instead
+  // of navigating locally. One shared helper keeps that decision in one
+  // place rather than re-implemented (and re-forgotten) per entry point.
+  const navigateOrRedirectToThread = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      const threadKey = scopedThreadKey(threadRef);
+      const redirectWindowId = resolveThreadWindowRedirect(
+        windowRegistry.ownerByThreadKey,
+        windowRegistry.myWindowId,
+        threadKey,
+      );
+      if (redirectWindowId !== null) {
+        void focusWindowForThread(threadKey);
+        return;
+      }
+      navigateToThread(threadRef);
+    },
+    [navigateToThread, windowRegistry],
+  );
+
   // Dropping files on a row opens that thread and attaches the files there.
   // The composer only accepts drops for its OWN thread, so when the row is
   // not the open thread we stash the files and let ChatView hand them over
@@ -3213,9 +3347,9 @@ export default function Sidebar() {
   const selectThreadSearchResult = useCallback(
     (thread: EnvironmentThreadShell) => {
       clearThreadSearch();
-      navigateToThread(scopeThreadRef(thread.environmentId, thread.id));
+      navigateOrRedirectToThread(scopeThreadRef(thread.environmentId, thread.id));
     },
-    [clearThreadSearch, navigateToThread],
+    [clearThreadSearch, navigateOrRedirectToThread],
   );
   const handleThreadSearchKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -3311,9 +3445,9 @@ export default function Sidebar() {
       if (isTrailingDoubleClick(event.detail)) {
         return;
       }
-      navigateToThread(threadRef);
+      navigateOrRedirectToThread(threadRef);
     },
-    [navigateToThread, rangeSelectTo, toggleThreadSelection],
+    [navigateOrRedirectToThread, rangeSelectTo, toggleThreadSelection],
   );
 
   // A settle per thread at a time: double clicks and repeated menu picks
@@ -4448,6 +4582,8 @@ export default function Sidebar() {
               snoozePresets,
               reminderPresets,
               hasReminder,
+              isDesktop: windowRegistry.isDesktop,
+              otherWindowIds: windowRegistry.otherWindows,
             }),
             position,
           ),
@@ -4465,6 +4601,10 @@ export default function Sidebar() {
             (candidate) => `remind:${candidate.id}` === clicked.value,
           );
           if (preset) attemptSetReminder(threadRef, preset.remindAt);
+          return;
+        }
+        if (clicked.value?.startsWith("add-to-window:")) {
+          await addThreadToWindow(threadKey, clicked.value.slice("add-to-window:".length));
           return;
         }
         switch (clicked.value) {
@@ -4524,6 +4664,9 @@ export default function Sidebar() {
             return;
           case "unpin":
             attemptUnpin(threadRef);
+            return;
+          case "open-in-new-window":
+            await openThreadInNewWindow(threadKey);
             return;
           case "rename":
             startThreadRename(threadRef, thread.title);
@@ -4654,6 +4797,7 @@ export default function Sidebar() {
       startThreadRename,
       updateThreadMetadata,
       timestampFormat,
+      windowRegistry,
     ],
   );
 
@@ -4775,6 +4919,7 @@ export default function Sidebar() {
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
         className="gap-0"
+        {...(windowDropHandlers ?? {})}
         fixedHeader={
           // Lifted above the stage backdrop, whose fade bleeds below the
           // header and would otherwise paint across the search row's outline.
@@ -4978,6 +5123,12 @@ export default function Sidebar() {
                         }
                         isHighlighted={activeSearchResultIndex === index}
                         isRouteActive={routeThreadKey === threadKey}
+                        isOwnedElsewhere={isThreadOwnedByAnotherWindow(
+                          windowRegistry.ownerByThreadKey,
+                          windowRegistry.myWindowId,
+                          threadKey,
+                        )}
+                        isDesktopHost={windowRegistry.isDesktop}
                         resultId={`sidebar-thread-search-result-${index}`}
                         onHighlight={() => setActiveSearchResultIndex(index)}
                         onSelect={() => selectThreadSearchResult(thread)}
@@ -5065,6 +5216,12 @@ export default function Sidebar() {
                                 .threadPinning === true
                             }
                             isPinned={thread.pinnedAt != null}
+                            isOwnedElsewhere={isThreadOwnedByAnotherWindow(
+                              windowRegistry.ownerByThreadKey,
+                              windowRegistry.myWindowId,
+                              threadKey,
+                            )}
+                            isDesktopHost={windowRegistry.isDesktop}
                             sortable={sortable}
                             dropVerb={
                               dragState?.activeKey === threadKey
@@ -5115,7 +5272,7 @@ export default function Sidebar() {
                             }
                             timestampFormat={timestampFormat}
                             onThreadClick={handleThreadClick}
-                            onThreadActivate={navigateToThread}
+                            onThreadActivate={navigateOrRedirectToThread}
                             onStartRename={startThreadRename}
                             onRenameTitleChange={setRenamingTitle}
                             onCommitRename={commitThreadRename}

@@ -11,8 +11,22 @@ import {
   syncDocumentElectronPlatformClasses,
   syncDocumentWindowControlsOverlayClass,
 } from "./lib/windowControlsOverlay";
+import { resolveInitialThreadRouteHash } from "./lib/windowRegistryClient";
 import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
+
+// A window the desktop app opened around a specific thread carries that
+// thread on its boot URL. Seed the hash before the history reads it, so the
+// window's first render is already on that thread's route.
+if (isElectron) {
+  const initialThreadRouteHash = resolveInitialThreadRouteHash(
+    window.location.search,
+    window.location.hash,
+  );
+  if (initialThreadRouteHash !== null) {
+    window.location.hash = initialThreadRouteHash;
+  }
+}
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();

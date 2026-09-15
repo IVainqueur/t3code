@@ -12,6 +12,10 @@ import {
   createThreadJumpHintVisibilityController,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
+  filterSidebarThreadsForWindow,
+  isThreadOwnedByAnotherWindow,
+  resolveThreadWindowRedirect,
+  resolveDisplacedThreadNavigation,
   getSidebarThreadIdsToPrewarm,
   resolveAdjacentThreadId,
   reduceSidebarProjectScopeMenuState,
@@ -2554,5 +2558,179 @@ describe("resolveSidebarDropVerb", () => {
     expect(resolveSidebarDropVerb("pinned", "pinned")).toBeNull();
     expect(resolveSidebarDropVerb("active", null)).toBeNull();
     expect(resolveSidebarDropVerb("active", "snoozed")).toBeNull();
+  });
+});
+
+describe("resolveThreadWindowRedirect", () => {
+  it("redirects to the owner when it is not this window", () => {
+    const ownerByThreadKey = new Map([["local:thread-1", "secondary-window-1"]]);
+    expect(resolveThreadWindowRedirect(ownerByThreadKey, "main", "local:thread-1")).toBe(
+      "secondary-window-1",
+    );
+    expect(resolveThreadWindowRedirect(ownerByThreadKey, null, "local:thread-1")).toBe(
+      "secondary-window-1",
+    );
+  });
+
+  it("stays null for unowned threads", () => {
+    const ownerByThreadKey = new Map<string, string>();
+    expect(resolveThreadWindowRedirect(ownerByThreadKey, "main", "local:thread-1")).toBeNull();
+  });
+
+  it("stays null when this window already owns the thread", () => {
+    const ownerByThreadKey = new Map([["local:thread-1", "secondary-window-1"]]);
+    expect(
+      resolveThreadWindowRedirect(ownerByThreadKey, "secondary-window-1", "local:thread-1"),
+    ).toBeNull();
+  });
+});
+
+describe("isThreadOwnedByAnotherWindow", () => {
+  it("agrees with resolveThreadWindowRedirect across every entry point's inputs", () => {
+    const ownerByThreadKey = new Map([["local:thread-1", "secondary-window-1"]]);
+    // Main window looking at a thread owned by a secondary window: owned elsewhere.
+    expect(isThreadOwnedByAnotherWindow(ownerByThreadKey, "main", "local:thread-1")).toBe(true);
+    // The owning secondary window itself: not owned elsewhere.
+    expect(
+      isThreadOwnedByAnotherWindow(ownerByThreadKey, "secondary-window-1", "local:thread-1"),
+    ).toBe(false);
+    // Unowned thread: never owned elsewhere.
+    expect(isThreadOwnedByAnotherWindow(ownerByThreadKey, "main", "local:thread-2")).toBe(false);
+  });
+});
+
+describe("filterSidebarThreadsForWindow", () => {
+  const keyOf = (thread: { key: string }) => thread.key;
+  const threads = [{ key: "a" }, { key: "b" }, { key: "c" }];
+
+  it("passes every thread through for the main window and non-desktop clients", () => {
+    expect(filterSidebarThreadsForWindow(threads, keyOf, "main", new Set(["a"]))).toBe(threads);
+    expect(filterSidebarThreadsForWindow(threads, keyOf, null, new Set(["a"]))).toBe(threads);
+  });
+
+  it("filters to only this secondary window's assigned threads", () => {
+    expect(
+      filterSidebarThreadsForWindow(threads, keyOf, "secondary-window-1", new Set(["a", "c"])),
+    ).toEqual([{ key: "a" }, { key: "c" }]);
+    expect(filterSidebarThreadsForWindow(threads, keyOf, "secondary-window-1", new Set())).toEqual(
+      [],
+    );
+  });
+});
+
+describe("resolveDisplacedThreadNavigation", () => {
+  const owner = (entries: Record<string, string>) => new Map(Object.entries(entries));
+
+  it("leaves non-desktop clients where they are", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-1": "secondary-window-1" }),
+        myWindowId: null,
+        myThreadKeys: new Set(),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toBeNull();
+  });
+
+  it("sends the main window to the landing route when its thread moves to a secondary window", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-1": "secondary-window-1" }),
+        myWindowId: "main",
+        myThreadKeys: new Set(),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toEqual({ kind: "landing" });
+  });
+
+  it("never picks a replacement thread for the main window, even one main explicitly owns", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-1": "secondary-window-1" }),
+        myWindowId: "main",
+        myThreadKeys: new Set(["local:thread-2"]),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toEqual({ kind: "landing" });
+  });
+
+  it("keeps the main window on a thread nobody owns", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-2": "secondary-window-1" }),
+        myWindowId: "main",
+        myThreadKeys: new Set(),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps the main window on a thread main itself owns", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-1": "main" }),
+        myWindowId: "main",
+        myThreadKeys: new Set(["local:thread-1"]),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toBeNull();
+  });
+
+  it("stays put while the routed thread is still ours", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-1": "secondary-window-1" }),
+        myWindowId: "secondary-window-1",
+        myThreadKeys: new Set(["local:thread-1"]),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toBeNull();
+  });
+
+  it("stays put on a thread nobody owns yet, so a just-created thread is not bounced", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({}),
+        myWindowId: "secondary-window-1",
+        myThreadKeys: new Set(),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toBeNull();
+  });
+
+  it("moves to another thread this window still owns once the routed one is reassigned", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({
+          "local:thread-1": "secondary-window-2",
+          "local:thread-2": "secondary-window-1",
+        }),
+        myWindowId: "secondary-window-1",
+        myThreadKeys: new Set(["local:thread-2"]),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toEqual({ kind: "thread", threadKey: "local:thread-2" });
+  });
+
+  it("falls back to the landing route when nothing is left in this window", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-1": "main" }),
+        myWindowId: "secondary-window-1",
+        myThreadKeys: new Set(),
+        routedThreadKey: "local:thread-1",
+      }),
+    ).toEqual({ kind: "landing" });
+  });
+
+  it("ignores a route with no thread on it, such as a draft", () => {
+    expect(
+      resolveDisplacedThreadNavigation({
+        ownerByThreadKey: owner({ "local:thread-1": "main" }),
+        myWindowId: "secondary-window-1",
+        myThreadKeys: new Set(["local:thread-2"]),
+        routedThreadKey: null,
+      }),
+    ).toBeNull();
   });
 });
