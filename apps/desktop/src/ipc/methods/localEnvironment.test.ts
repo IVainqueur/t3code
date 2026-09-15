@@ -10,6 +10,7 @@ import * as ElectronApp from "../../electron/ElectronApp.ts";
 import * as ElectronTheme from "../../electron/ElectronTheme.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWindow from "../../window/DesktopWindow.ts";
+import { WindowThreadRegistry } from "../../window/WindowThreadRegistry.ts";
 import { getLocalEnvironmentEnabled, setLocalEnvironmentEnabled } from "./localEnvironment.ts";
 
 // `relaunch` declares the lifecycle runtime services as requirements even
@@ -23,7 +24,12 @@ const unusedLifecycleRuntimeLayer = Layer.mergeAll(
       {} as DesktopEnvironment.DesktopEnvironment["Service"],
     ),
   ),
-  Layer.mock(DesktopWindow.DesktopWindow, {}),
+  Layer.mock(DesktopWindow.DesktopWindow, {
+    windowThreadRegistry: new WindowThreadRegistry(),
+    listWindowBounds: () => [],
+    windowIdForWebContents: () => undefined,
+    windowForId: () => undefined,
+  }),
   Layer.mock(ElectronApp.ElectronApp, {}),
   Layer.mock(ElectronTheme.ElectronTheme, {}),
 );
