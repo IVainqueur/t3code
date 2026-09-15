@@ -3709,10 +3709,17 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   const stageProdResourcesDir = path.join(stageAppDir, "apps/desktop/prod-resources");
   yield* fs.copy(stageResourcesDir, stageProdResourcesDir);
 
+  // Passkey/Associated-Domains signing (webcredentials entitlements + a
+  // provisioning profile) is an opt-in extra on top of plain Developer-ID
+  // signing, not a requirement of `signed`. Only resolve it when the repo env
+  // actually configures a provisioning profile; otherwise a signed build uses
+  // ordinary keychain-based Developer ID signing with no extra entitlements.
+  const repoEnvForMacSigning =
+    options.platform === "mac" && options.signed ? loadRepoEnv({ repoRoot }) : undefined;
   const configuredMacPasskeySigning =
-    options.platform === "mac" && options.signed
+    repoEnvForMacSigning && repoEnvForMacSigning.T3CODE_MACOS_PROVISIONING_PROFILE?.trim()
       ? yield* Effect.try({
-          try: () => resolveMacPasskeySigningConfiguration(loadRepoEnv({ repoRoot })),
+          try: () => resolveMacPasskeySigningConfiguration(repoEnvForMacSigning),
           catch: MacPasskeySigningConfigurationResolutionError.fromCause,
         })
       : undefined;
