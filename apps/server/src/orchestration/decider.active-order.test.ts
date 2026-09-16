@@ -54,6 +54,7 @@ function makeReadModel(overrides: Partial<OrchestrationThread> = {}): Orchestrat
         activities: [],
         checkpoints: [],
         session: null,
+        dismissedTaskIds: [],
         ...overrides,
       },
     ],

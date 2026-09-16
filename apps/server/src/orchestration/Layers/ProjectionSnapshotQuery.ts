@@ -2310,6 +2310,7 @@ pending_approval_requests AS (
                 activities: activitiesByThread.get(row.threadId) ?? [],
                 checkpoints: checkpointsByThread.get(row.threadId) ?? [],
                 session: sessionsByThread.get(row.threadId) ?? null,
+                dismissedTaskIds: [],
               }));
 
               const snapshot = {

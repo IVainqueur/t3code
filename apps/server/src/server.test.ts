@@ -389,6 +389,7 @@ const makeDefaultOrchestrationThreadShell = (
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    dismissedTaskIds: [],
     ...overrides,
   };
 };
