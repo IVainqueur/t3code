@@ -2,7 +2,7 @@ import type { RuntimeTaskId } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 
-import { SubagentDetailView } from "../components/SubagentDetailView";
+import { SubagentDetailView, SubagentNotFoundView } from "../components/SubagentDetailView";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { useThreadDetail, useThreadSubagent } from "../state/entities";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
@@ -22,7 +22,12 @@ function SubagentDetailRouteView() {
 
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground md:h-dvh">
-      {agent === null ? null : (
+      {agent === null ? (
+        <SubagentNotFoundView
+          threadTitle={thread?.title ?? params.threadId}
+          onBackToThread={onBackToThread}
+        />
+      ) : (
         <SubagentDetailView
           agent={agent}
           threadTitle={thread?.title ?? params.threadId}

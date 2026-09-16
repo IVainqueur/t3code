@@ -77,6 +77,66 @@ function TranscriptBlockView({
   );
 }
 
+function SubagentBreadcrumb({
+  threadTitle,
+  onBackToThread,
+  current,
+}: {
+  readonly threadTitle: string;
+  readonly onBackToThread: () => void;
+  readonly current: string;
+}) {
+  return (
+    <WorkspaceBreadcrumb ariaLabel="Subagent">
+      <WorkspaceBreadcrumbItem>
+        <button
+          type="button"
+          onClick={onBackToThread}
+          className="min-w-0 truncate rounded-sm hover:text-foreground"
+        >
+          {threadTitle}
+        </button>
+      </WorkspaceBreadcrumbItem>
+      <WorkspaceBreadcrumbSeparator />
+      <WorkspaceBreadcrumbItem current className="truncate">
+        {current}
+      </WorkspaceBreadcrumbItem>
+    </WorkspaceBreadcrumb>
+  );
+}
+
+/**
+ * Stand-in for a taskId with no matching subagent — a stale bookmark, or an
+ * agent whose rows aged out of the activity window. Keeps the breadcrumb so
+ * the way back to the parent thread is still reachable.
+ */
+export function SubagentNotFoundView({
+  threadTitle,
+  onBackToThread,
+}: {
+  readonly threadTitle: string;
+  readonly onBackToThread: () => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="flex shrink-0 flex-col gap-1.5 border-b px-4 py-3">
+        <SubagentBreadcrumb
+          threadTitle={threadTitle}
+          onBackToThread={onBackToThread}
+          current="Subagent not found"
+        />
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+        <Bot aria-hidden className="size-6 text-muted-foreground/60" />
+        <p className="font-medium text-sm">Subagent not found</p>
+        <p className="max-w-xs text-muted-foreground text-xs">
+          This thread has no agent with that id. It may have been from an older run.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function SubagentDetailView({
   agent,
   threadTitle,
@@ -104,21 +164,11 @@ export function SubagentDetailView({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <header className="flex shrink-0 flex-col gap-1.5 border-b px-4 py-3">
-        <WorkspaceBreadcrumb ariaLabel="Subagent">
-          <WorkspaceBreadcrumbItem>
-            <button
-              type="button"
-              onClick={onBackToThread}
-              className="min-w-0 truncate rounded-sm hover:text-foreground"
-            >
-              {threadTitle}
-            </button>
-          </WorkspaceBreadcrumbItem>
-          <WorkspaceBreadcrumbSeparator />
-          <WorkspaceBreadcrumbItem current className="truncate">
-            {agent.title}
-          </WorkspaceBreadcrumbItem>
-        </WorkspaceBreadcrumb>
+        <SubagentBreadcrumb
+          threadTitle={threadTitle}
+          onBackToThread={onBackToThread}
+          current={agent.title}
+        />
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
           <span className="flex items-center gap-1.5">
             <span aria-hidden className={cn("size-1.5 rounded-full", status.dotClass)} />

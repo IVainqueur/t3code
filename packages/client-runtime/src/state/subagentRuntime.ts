@@ -631,8 +631,10 @@ export function foldSubagentActivities(
       case "task.transcriptAppended": {
         const taskId = asString(payload.taskId);
         if (!taskId) break;
-        const agent = agents.get(taskId);
-        if (!agent) break;
+        // A transcript entry can outlive its task.started row (evicted from the
+        // activity window). Synthesize the agent rather than dropping the
+        // transcript, the same way completion does.
+        const agent = getOrCreate(agents, taskId, payload, at);
         const ordinal = asCount(payload.ordinal);
         const entryKind = asString(payload.kind);
         if (ordinal === undefined || !entryKind) break;
@@ -715,7 +717,13 @@ export function foldSubagentActivities(
   const dismissedTaskIds = new Set(options?.dismissedTaskIds ?? []);
   return roster.map((agent) => ({
     ...agent,
-    transcript: agent.transcript.slice().sort((a, b) => a.ordinal - b.ordinal),
+    // Timestamp first, ordinal as tiebreaker: the adapter's ordinal counter is
+    // per-session and in-memory, so a resumed session restarts at 0 for a task
+    // whose earlier entries are already persisted. Sorting on ordinal alone
+    // would splice the resumed entries into the middle of the old sequence.
+    transcript: agent.transcript
+      .slice()
+      .sort((a, b) => a.at.localeCompare(b.at) || a.ordinal - b.ordinal),
     dismissed: dismissedTaskIds.has(agent.id),
   }));
 }
