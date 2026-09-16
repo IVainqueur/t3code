@@ -216,6 +216,13 @@ function AgentRow({
             event.stopPropagation();
             onRestore(agent);
           }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              onRestore(agent);
+            }
+          }}
           className="absolute right-1 top-1"
         >
           <RotateCcw aria-hidden className="size-3" />
