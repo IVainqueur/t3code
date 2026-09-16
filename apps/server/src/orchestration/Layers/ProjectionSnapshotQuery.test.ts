@@ -541,6 +541,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             lastError: null,
             updatedAt: "2026-02-24T00:00:07.000Z",
           },
+          dismissedTaskIds: [],
         },
       ]);
 
@@ -628,6 +629,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           hasActionableProposedPlan: false,
           backgroundLiveness: null,
           planProgress: null,
+          dismissedTaskIds: [],
         },
       ]);
 

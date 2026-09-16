@@ -66,6 +66,7 @@ const thread: OrchestrationThreadShell = {
   settledOverride: null,
   settledAt: null,
   session: null,
+  dismissedTaskIds: [],
   latestUserMessageAt: "2026-08-20T00:00:00.000Z",
   hasPendingApprovals: false,
   hasPendingUserInput: false,

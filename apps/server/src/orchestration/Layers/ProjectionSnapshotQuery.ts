@@ -2555,6 +2555,7 @@ pending_approval_requests AS (
                   activities: [],
                   checkpoints: [],
                   session: sessionByThread.get(row.threadId) ?? null,
+                  dismissedTaskIds: [],
                 });
               }
 
@@ -2714,6 +2715,7 @@ pending_approval_requests AS (
                           row.threadId,
                         ),
                         planProgress: threadPlanProgress.getThreadPlanProgress(row.threadId),
+                        dismissedTaskIds: [],
                       } satisfies OrchestrationThreadShell)
                     : Result.failVoid,
                 ),
@@ -2877,6 +2879,7 @@ pending_approval_requests AS (
                     row.threadId,
                   ),
                   planProgress: threadPlanProgress.getThreadPlanProgress(row.threadId),
+                  dismissedTaskIds: [],
                 })),
                 updatedAt: updatedAt ?? "1970-01-01T00:00:00.000Z",
               };
@@ -3233,6 +3236,7 @@ pending_approval_requests AS (
           threadRow.value.threadId,
         ),
         planProgress: threadPlanProgress.getThreadPlanProgress(threadRow.value.threadId),
+        dismissedTaskIds: [],
       } satisfies OrchestrationThreadShell);
     });
 

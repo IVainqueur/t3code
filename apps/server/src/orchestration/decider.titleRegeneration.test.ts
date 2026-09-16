@@ -41,6 +41,7 @@ const readModel: OrchestrationReadModel = {
       activities: [],
       checkpoints: [],
       session: null,
+      dismissedTaskIds: [],
     },
   ],
   updatedAt: UPDATED_AT,

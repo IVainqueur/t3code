@@ -98,6 +98,7 @@ function makeReadModel(pullRequests: ReadonlyArray<ThreadPullRequestLink>): Orch
         activities: [],
         checkpoints: [],
         session: null,
+        dismissedTaskIds: [],
       },
     ],
     updatedAt: NOW,
