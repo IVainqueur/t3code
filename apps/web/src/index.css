@@ -557,6 +557,13 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   ::highlight(t3-assistant-citation-comment) {
     background-color: color-mix(in oklab, var(--primary) 45%, transparent);
   }
+  ::highlight(t3-conversation-find) {
+    background-color: color-mix(in oklab, var(--warning) 35%, transparent);
+  }
+  ::highlight(t3-conversation-find-active) {
+    background-color: color-mix(in oklab, var(--warning) 75%, transparent);
+    color: var(--warning-foreground);
+  }
   :root {
     /* Keep the original T4 Code artwork palettes as the defaults. Built-in
        themes override them with their own pigments in the components layer. */

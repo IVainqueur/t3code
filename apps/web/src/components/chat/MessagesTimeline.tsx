@@ -11,6 +11,8 @@ import {
   resolveTimelineMinimapPreview,
   type TimelineMinimapItem,
 } from "./timelineMinimapItems";
+import { findConversationMatches, type ConversationFindMatch } from "./conversationFindMatches";
+import { highlightConversationFindMatches } from "~/lib/conversationFindHighlight";
 import {
   COMPOSER_CONTEXT_KINDS,
   type AssistantCitation,
@@ -286,6 +288,8 @@ interface TimelineRowSharedState {
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   onSteerQueuedMessage: (id: string) => void;
   onRemoveQueuedMessage: (id: string) => void;
+  findQuery: string;
+  findActiveMatch: ConversationFindMatch | null;
 }
 
 interface TimelineRowActivityState {
@@ -442,6 +446,11 @@ interface MessagesTimelineProps {
   queuedMessages?: ReadonlyArray<QueuedComposerMessage>;
   onSteerQueuedMessage?: (id: string) => void;
   onRemoveQueuedMessage?: (id: string) => void;
+  /** Live "find in conversation" query; empty when the find bar is closed. */
+  findQuery?: string;
+  findActiveMatch?: ConversationFindMatch | null;
+  /** Reports the current query's matches whenever the rows or query change. */
+  onFindMatchesChange?: (matches: ConversationFindMatch[]) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -497,6 +506,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   queuedMessages = EMPTY_QUEUED_MESSAGES,
   onSteerQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
   onRemoveQueuedMessage = NOOP_QUEUED_MESSAGE_ACTION,
+  findQuery = "",
+  findActiveMatch = null,
+  onFindMatchesChange,
 }: MessagesTimelineProps) {
   const [expandedTurnIds, setExpandedTurnIds] = useState<ReadonlySet<TurnId>>(new Set());
   const [expandedWorkGroupIds, setExpandedWorkGroupIds] = useState<ReadonlySet<string>>(new Set());
@@ -747,6 +759,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
   const rows = useStableRows(rawRows, listIdentityKey);
   const minimapItems = useMemo(() => deriveTimelineMinimapItems(rows), [rows]);
+  const findMatches = useMemo(() => findConversationMatches(rows, findQuery), [rows, findQuery]);
+  useEffect(() => {
+    onFindMatchesChange?.(findMatches);
+  }, [findMatches, onFindMatchesChange]);
   const [timelineViewportElement, setTimelineViewportElement] = useState<HTMLDivElement | null>(
     null,
   );
@@ -941,6 +957,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
       onSteerQueuedMessage,
       onRemoveQueuedMessage,
+      findQuery,
+      findActiveMatch,
     }),
     [
       readyCitationRequest,
@@ -973,6 +991,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onOpenWorktreeSetupTerminal,
       onSteerQueuedMessage,
       onRemoveQueuedMessage,
+      findQuery,
+      findActiveMatch,
     ],
   );
   const activityState = useMemo<TimelineRowActivityState>(
@@ -1409,9 +1429,28 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
   const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isExpandedToolGroupHeader =
     (row.kind === "work-toggle" && row.expanded) || (row.kind === "work-live" && row.expanded);
+  const { findQuery, findActiveMatch } = use(TimelineRowCtx);
+  const isActiveFindRow =
+    row.kind === "message" &&
+    findActiveMatch !== null &&
+    findActiveMatch.messageId === row.message.id;
+  const findRootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = findRootRef.current;
+    if (!root || row.kind !== "message" || findQuery.trim().length === 0) return;
+    return highlightConversationFindMatches({
+      root,
+      query: findQuery,
+      activeOccurrenceInRow: isActiveFindRow ? (findActiveMatch?.occurrenceInRow ?? null) : null,
+    });
+    // `row` changes identity on every content update (including streaming),
+    // so the highlight ranges are recomputed against the freshly rendered DOM.
+  }, [findQuery, isActiveFindRow, findActiveMatch?.occurrenceInRow, row]);
 
   return (
     <div
+      ref={findRootRef}
       className={cn(
         // Commentary (non-terminal assistant) rows carry no metadata row, so
         // they sit closer to the work that follows them.
