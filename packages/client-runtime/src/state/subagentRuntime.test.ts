@@ -891,3 +891,39 @@ describe("nested agents vs subagent shells", () => {
     expect(agents.map((agent) => agent.id)).toEqual(["nested-1"]);
   });
 });
+
+describe("transcript and dismissed", () => {
+  it("appends task.transcriptAppended activities to the subagent's transcript in ordinal order", () => {
+    const agents = foldSubagentActivities([
+      activity("task.started", { taskId: "task-1", taskType: "local_agent" }),
+      activity("task.transcriptAppended", {
+        taskId: "task-1",
+        ordinal: 1,
+        kind: "text",
+        content: { text: "second" },
+      }),
+      activity("task.transcriptAppended", {
+        taskId: "task-1",
+        ordinal: 0,
+        kind: "text",
+        content: { text: "first" },
+      }),
+    ]);
+
+    const agent = agents.find((a) => a.id === "task-1");
+    expect(agent?.transcript.map((entry) => entry.content)).toEqual([
+      { text: "first" },
+      { text: "second" },
+    ]);
+    expect(agent?.dismissed).toBe(false);
+  });
+
+  it("marks a subagent dismissed when its taskId is in dismissedTaskIds", () => {
+    const agents = foldSubagentActivities(
+      [activity("task.started", { taskId: "task-1", taskType: "local_agent" })],
+      { dismissedTaskIds: ["task-1"] },
+    );
+
+    expect(agents.find((a) => a.id === "task-1")?.dismissed).toBe(true);
+  });
+});
