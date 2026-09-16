@@ -39,7 +39,10 @@ import { isRestoreVisible } from "./AgentsPanel.dismissal.js";
  * stalled/waiting/queued subagent is still the fleet doing its job, not a
  * user problem). Only settled states differentiate.
  */
-const STATUS_VISUALS: Record<RuntimeSubagent["status"], { dotClass: string; label: string }> = {
+export const STATUS_VISUALS: Record<
+  RuntimeSubagent["status"],
+  { dotClass: string; label: string }
+> = {
   pending: { dotClass: "bg-info", label: "Working" },
   running: { dotClass: "bg-info", label: "Working" },
   waiting: { dotClass: "bg-info", label: "Working" },
@@ -586,8 +589,9 @@ function WorkflowSection({
   );
 }
 
-// Stable default so a thread with no navigation wired yet (before Task 10)
-// never hands AgentRow a fresh function identity on every render.
+// Stable default for callers that render the panel without navigation (tests,
+// previews), so AgentRow never sees a fresh function identity per render.
+// ChatView passes the real handler that opens the subagent detail route.
 function noopOpenAgent(): void {}
 
 export function AgentsPanel({
@@ -599,7 +603,7 @@ export function AgentsPanel({
   model: AgentPanelModel;
   environmentId?: EnvironmentId | null;
   threadId?: ThreadId | null;
-  /** Task 10 wires real navigation to the subagent detail route. */
+  /** Opens the subagent's own transcript view. */
   onOpen?: (agent: RuntimeSubagent) => void;
 }) {
   const restoreTaskMutation = useAtomCommand(threadEnvironment.restoreTask, {

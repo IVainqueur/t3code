@@ -1140,10 +1140,6 @@ const SUBAGENT_STATUS_LABEL: Record<RuntimeSubagent["status"], string> = {
   interrupted: "Stopped",
 };
 
-// Passed as onOpenSubagent until Task 10 wires the detail route; a stable
-// reference so rows with no subagents never see a new function identity.
-function noopOpenSubagent(): void {}
-
 // Shared by every row variant: the drag itself carries the thread key, so
 // nothing here is per-row and one module-level host keeps the row handlers
 // referentially stable.
@@ -1231,7 +1227,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   /** Live subagent roster for this thread; dismissed entries are filtered before render. */
   subagents: ReadonlyArray<RuntimeSubagent>;
   onDismissSubagent: (taskId: RuntimeTaskId) => void;
-  /** Task 10 supplies real navigation once the detail route exists; a no-op until then. */
+  /** Opens the subagent's transcript view for the thread that owns the task. */
   onOpenSubagent: (taskId: RuntimeTaskId) => void;
   /**
    * External files dropped onto this row. The row highlights while the drag
@@ -2627,9 +2623,9 @@ export default function Sidebar() {
   // this callback, so it must be one stable reference for the whole list —
   // a fresh closure per row per render (even one bound only for rows with
   // subagents) would defeat memo for every row, not just those rows. The
-  // row's own prop signature is bare `(taskId) => void` (Task 9/10 depend on
-  // that exact shape), so the thread a given taskId belongs to is resolved
-  // through this ref-backed map instead of being captured in the closure.
+  // row's own prop signature is bare `(taskId) => void`, so the thread a
+  // given taskId belongs to is resolved through this ref-backed map instead
+  // of being captured in the closure.
   // Rows update their own entries as they render (see renderThreadRowInner).
   const taskThreadRefsRef = useRef<Map<RuntimeTaskId, ScopedThreadRef>>(new Map());
   const handleDismissSubagent = useCallback(
@@ -2639,6 +2635,20 @@ export default function Sidebar() {
       void dismissTask(threadRef, taskId);
     },
     [dismissTask],
+  );
+  // Same ref-backed lookup as dismissal, for the same memo reason: the row's
+  // prop is a bare `(taskId) => void`, so the owning thread comes from the
+  // map rather than a per-row closure.
+  const handleOpenSubagent = useCallback(
+    (taskId: RuntimeTaskId) => {
+      const threadRef = taskThreadRefsRef.current.get(taskId);
+      if (!threadRef) return;
+      void router.navigate({
+        to: "/$environmentId/$threadId/agents/$taskId",
+        params: { ...buildThreadRouteParams(threadRef), taskId },
+      });
+    },
+    [router],
   );
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
@@ -5483,7 +5493,7 @@ export default function Sidebar() {
                             onUnpin={attemptUnpin}
                             subagents={rowSubagents}
                             onDismissSubagent={handleDismissSubagent}
-                            onOpenSubagent={noopOpenSubagent}
+                            onOpenSubagent={handleOpenSubagent}
                             onAcknowledgeWoke={acknowledgeWoke}
                             onSetReminder={attemptSetReminder}
                             onDismissReminder={dismissReminder}
