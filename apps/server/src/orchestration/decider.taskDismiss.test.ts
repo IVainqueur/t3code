@@ -146,4 +146,19 @@ it.layer(NodeServices.layer)("task dismiss/restore decider", (it) => {
       expect(error._tag).toBe("OrchestrationCommandInvariantError");
     }),
   );
+
+  it.effect("rejects restoring a task on an archived thread", () =>
+    Effect.gen(function* () {
+      const error = yield* decideOrchestrationCommand({
+        command: {
+          type: "task.restore",
+          commandId: CommandId.make("cmd-restore-archived"),
+          threadId: ThreadId.make("thread-1"),
+          taskId: RuntimeTaskId.make("task_abc"),
+        },
+        readModel: makeReadModel({ archivedAt: NOW }),
+      }).pipe(Effect.flip);
+      expect(error._tag).toBe("OrchestrationCommandInvariantError");
+    }),
+  );
 });

@@ -174,6 +174,57 @@ describe("orchestration projector", () => {
     }),
   );
 
+  effectIt.effect("folding a repeated task.dismissed does not duplicate the taskId", () =>
+    Effect.gen(function* () {
+      const now = "2026-01-01T00:00:00.000Z";
+      const eventFields = {
+        aggregateKind: "thread" as const,
+        aggregateId: "thread-1",
+        occurredAt: now,
+        commandId: null,
+      };
+      let model = yield* projectEvent(
+        createEmptyReadModel(now),
+        makeEvent({
+          ...eventFields,
+          sequence: 1,
+          type: "thread.created",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "Subagent thread",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      );
+
+      const dismissedEvent = {
+        threadId: "thread-1",
+        taskId: "task-1",
+        dismissedAt: now,
+        updatedAt: now,
+      };
+      model = yield* projectEvent(
+        model,
+        makeEvent({ ...eventFields, sequence: 2, type: "task.dismissed", payload: dismissedEvent }),
+      );
+      // A second task.dismissed for the same taskId (double-click, raced
+      // clients, decider re-emission on an already-dismissed task) must not
+      // duplicate the id in the persisted array.
+      model = yield* projectEvent(
+        model,
+        makeEvent({ ...eventFields, sequence: 3, type: "task.dismissed", payload: dismissedEvent }),
+      );
+      expect(model.threads[0]?.dismissedTaskIds).toEqual(["task-1"]);
+      expect(model.threads[0]?.dismissedTaskIds).toHaveLength(1);
+    }),
+  );
+
   effectIt.effect("sets and clears branch pull requests without changing manual links", () =>
     Effect.gen(function* () {
       const now = "2026-01-01T00:00:00.000Z";
