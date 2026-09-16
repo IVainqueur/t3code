@@ -3,6 +3,7 @@ import {
   EnvironmentId,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
+  RuntimeTaskId,
   ThreadId,
   type ClientOrchestrationCommand,
 } from "@t3tools/contracts";
@@ -24,8 +25,10 @@ import type { WsRpcProtocolClient } from "../rpc/protocol.ts";
 import {
   archiveThread,
   createProject,
+  dismissSubagentTask,
   revertThreadCheckpoint,
   reorderActiveThread,
+  restoreSubagentTask,
   settleThread,
   stopThreadSession,
   unsettleThread,
@@ -211,6 +214,50 @@ describe("environment commands", () => {
           commandId: "reorder-command",
           threadId: "thread-1",
           orderKey: "mf",
+        },
+      ]);
+    }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
+  );
+
+  it.effect("dismisses a subagent task", () =>
+    Effect.gen(function* () {
+      const dispatched: ClientOrchestrationCommand[] = [];
+      const supervisor = yield* makeSupervisor(dispatched);
+
+      yield* dismissSubagentTask({
+        commandId: CommandId.make("dismiss-task-command"),
+        threadId: ThreadId.make("thread-1"),
+        taskId: RuntimeTaskId.make("task-1"),
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(dispatched).toEqual([
+        {
+          type: "task.dismiss",
+          commandId: "dismiss-task-command",
+          threadId: "thread-1",
+          taskId: "task-1",
+        },
+      ]);
+    }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
+  );
+
+  it.effect("restores a dismissed subagent task", () =>
+    Effect.gen(function* () {
+      const dispatched: ClientOrchestrationCommand[] = [];
+      const supervisor = yield* makeSupervisor(dispatched);
+
+      yield* restoreSubagentTask({
+        commandId: CommandId.make("restore-task-command"),
+        threadId: ThreadId.make("thread-1"),
+        taskId: RuntimeTaskId.make("task-1"),
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(dispatched).toEqual([
+        {
+          type: "task.restore",
+          commandId: "restore-task-command",
+          threadId: "thread-1",
+          taskId: "task-1",
         },
       ]);
     }).pipe(Effect.provide(TEST_CRYPTO_LAYER)),
