@@ -83,6 +83,7 @@ function threadDetailToShell(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    dismissedTaskIds: thread.dismissedTaskIds,
   };
 }
 

@@ -161,5 +161,6 @@ export function pendingThreadCreationShell(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    dismissedTaskIds: [],
   };
 }

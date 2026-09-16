@@ -401,6 +401,7 @@ describe("OrchestrationEngine", () => {
           activities: [],
           checkpoints: [],
           session: null,
+          dismissedTaskIds: [],
         },
       ],
     };

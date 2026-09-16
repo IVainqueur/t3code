@@ -61,6 +61,7 @@ function makeThread(
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
     ...input,
+    dismissedTaskIds: input.dismissedTaskIds ?? [],
   };
 }
 
