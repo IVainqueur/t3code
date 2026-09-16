@@ -235,6 +235,24 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.usage.maxTokens).toBe(200000);
     expect(parsed.payload.usage.usedTokens).toBe(31251);
   });
+
+  it("decodes a valid transcript-appended event", () => {
+    const decoded = decodeRuntimeEvent({
+      eventId: "evt_test1",
+      provider: "claude",
+      threadId: "thread_test1",
+      createdAt: "2026-09-16T00:00:00.000Z",
+      type: "task.transcriptAppended",
+      payload: {
+        taskId: "task_test1",
+        ordinal: 0,
+        kind: "text",
+        content: { text: "hello from subagent" },
+        timestamp: "2026-09-16T00:00:00.000Z",
+      },
+    });
+    expect(decoded.type).toBe("task.transcriptAppended");
+  });
 });
 
 describe("classifyTaskAgentKind", () => {

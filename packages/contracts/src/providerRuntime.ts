@@ -181,6 +181,7 @@ const ProviderRuntimeEventType = Schema.Literals([
   "task.progress",
   "task.updated",
   "task.completed",
+  "task.transcriptAppended",
   "hook.started",
   "hook.progress",
   "hook.completed",
@@ -233,6 +234,7 @@ const TaskStartedType = Schema.Literal("task.started");
 const TaskProgressType = Schema.Literal("task.progress");
 const TaskUpdatedType = Schema.Literal("task.updated");
 const TaskCompletedType = Schema.Literal("task.completed");
+const TaskTranscriptAppendedType = Schema.Literal("task.transcriptAppended");
 const HookStartedType = Schema.Literal("hook.started");
 const HookProgressType = Schema.Literal("hook.progress");
 const HookCompletedType = Schema.Literal("hook.completed");
@@ -731,6 +733,17 @@ const TaskCompletedPayload = Schema.Struct({
 });
 export type TaskCompletedPayload = typeof TaskCompletedPayload.Type;
 
+const TaskTranscriptEntryKind = Schema.Literals(["text", "thinking", "tool_use", "tool_result"]);
+
+export const TaskTranscriptAppendedPayload = Schema.Struct({
+  taskId: RuntimeTaskId,
+  ordinal: Schema.Number,
+  kind: TaskTranscriptEntryKind,
+  content: Schema.Unknown,
+  timestamp: IsoDateTime,
+});
+export type TaskTranscriptAppendedPayload = typeof TaskTranscriptAppendedPayload.Type;
+
 const HookStartedPayload = Schema.Struct({
   hookId: TrimmedNonEmptyStringSchema,
   hookName: TrimmedNonEmptyStringSchema,
@@ -1104,6 +1117,14 @@ const ProviderRuntimeTaskCompletedEvent = Schema.Struct({
 });
 export type ProviderRuntimeTaskCompletedEvent = typeof ProviderRuntimeTaskCompletedEvent.Type;
 
+const ProviderRuntimeTaskTranscriptAppendedEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: TaskTranscriptAppendedType,
+  payload: TaskTranscriptAppendedPayload,
+});
+export type ProviderRuntimeTaskTranscriptAppendedEvent =
+  typeof ProviderRuntimeTaskTranscriptAppendedEvent.Type;
+
 const ProviderRuntimeHookStartedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: HookStartedType,
@@ -1259,6 +1280,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeTaskProgressEvent,
   ProviderRuntimeTaskUpdatedEvent,
   ProviderRuntimeTaskCompletedEvent,
+  ProviderRuntimeTaskTranscriptAppendedEvent,
   ProviderRuntimeHookStartedEvent,
   ProviderRuntimeHookProgressEvent,
   ProviderRuntimeHookCompletedEvent,
