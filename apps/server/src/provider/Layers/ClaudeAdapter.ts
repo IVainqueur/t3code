@@ -335,6 +335,8 @@ interface ClaudeSessionContext {
   readonly inFlightTools: Map<number, ToolInFlight>;
   readonly claudeTasks: Map<string, ClaudeTaskState>;
   readonly taskAgents: Map<string, ClaudeTaskAgentState>;
+  /** Next transcript ordinal to assign per taskId, for task.transcriptAppended. */
+  readonly taskTranscriptOrdinals: Map<string, number>;
   /**
    * Authoritative subagent models from assistant snapshots that arrived before
    * their task_started registered the task, keyed by parent_tool_use_id.
@@ -1253,6 +1255,17 @@ function agentIdForParentToolUse(
     }
   }
   return undefined;
+}
+
+/**
+ * Assigns the next monotonically increasing ordinal for a task's transcript,
+ * starting at 0. Scoped per taskId so interleaved subagents each get their
+ * own dense sequence.
+ */
+function nextTranscriptOrdinal(ordinals: Map<string, number>, taskId: string): number {
+  const current = ordinals.get(taskId) ?? 0;
+  ordinals.set(taskId, current + 1);
+  return current;
 }
 
 /**
@@ -2688,15 +2701,51 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     // into the parent transcript: with forwardSubagentText off the SDK still
     // forwards subagent tool_use/tool_result blocks and their wrapping
     // text/thinking deltas, and emitting them interleaved N subagents'
-    // narration into the chat (live-test finding). Their results reach the
-    // UI via the task.* lifecycle; their tool blocks are attributed and
-    // re-homed by the quiet-timeline filter.
+    // narration into the chat (live-test finding). Their narration and tool
+    // blocks are instead captured into the owning task's own transcript via
+    // task.transcriptAppended, so the subagent's full transcript stays
+    // browsable even though it never joins the parent's timeline.
     const streamParentToolUseId = (message as { parent_tool_use_id?: string | null })
       .parent_tool_use_id;
     if (streamParentToolUseId !== null && streamParentToolUseId !== undefined) {
-      // Drop only the subagent's narration (text/thinking); tool_use blocks
-      // and their input_json_delta frames must flow so attributed tool items
-      // keep their inputs (review finding: dropping deltas emptied inputs).
+      const owningTaskId = agentIdForParentToolUse(context.taskAgents, streamParentToolUseId);
+      if (
+        owningTaskId !== undefined &&
+        event.type === "content_block_delta" &&
+        (event.delta.type === "text_delta" || event.delta.type === "thinking_delta")
+      ) {
+        const narrationKind: "text" | "thinking" =
+          event.delta.type === "text_delta" ? "text" : "thinking";
+        const narrationText =
+          event.delta.type === "text_delta"
+            ? event.delta.text
+            : typeof event.delta.thinking === "string"
+              ? event.delta.thinking
+              : "";
+        if (narrationText.length > 0) {
+          const stamp = yield* makeEventStamp();
+          yield* offerRuntimeEvent({
+            type: "task.transcriptAppended",
+            eventId: stamp.eventId,
+            provider: PROVIDER,
+            createdAt: stamp.createdAt,
+            threadId: context.session.threadId,
+            payload: {
+              taskId: RuntimeTaskId.make(owningTaskId),
+              ordinal: nextTranscriptOrdinal(context.taskTranscriptOrdinals, owningTaskId),
+              kind: narrationKind,
+              content:
+                narrationKind === "text" ? { text: narrationText } : { thinking: narrationText },
+              timestamp: stamp.createdAt,
+            },
+          });
+        }
+      }
+
+      // Drop only the subagent's narration (text/thinking) from the parent's
+      // own transcript; tool_use blocks and their input_json_delta frames
+      // must still flow so attributed tool items keep their inputs (review
+      // finding: dropping deltas emptied inputs).
       const dropStart =
         event.type === "content_block_start" &&
         event.content_block.type !== "tool_use" &&
@@ -2965,6 +3014,29 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           payload: message,
         },
       });
+
+      // Additive: capture the subagent's tool call into its own task
+      // transcript alongside the parent-facing attribution above.
+      if (owningAgentId !== undefined) {
+        const transcriptStamp = yield* makeEventStamp();
+        yield* offerRuntimeEvent({
+          type: "task.transcriptAppended",
+          eventId: transcriptStamp.eventId,
+          provider: PROVIDER,
+          createdAt: transcriptStamp.createdAt,
+          threadId: context.session.threadId,
+          payload: {
+            taskId: RuntimeTaskId.make(owningAgentId),
+            ordinal: nextTranscriptOrdinal(context.taskTranscriptOrdinals, owningAgentId),
+            kind: "tool_use",
+            content: {
+              toolName: tool.toolName,
+              input: tool.input,
+            },
+            timestamp: transcriptStamp.createdAt,
+          },
+        });
+      }
       return;
     }
 
@@ -3096,6 +3168,29 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           payload: message,
         },
       });
+
+      // Additive: capture the subagent's tool result into its own task
+      // transcript alongside the parent-facing item.completed above.
+      if (tool.agentId !== undefined) {
+        const transcriptStamp = yield* makeEventStamp();
+        yield* offerRuntimeEvent({
+          type: "task.transcriptAppended",
+          eventId: transcriptStamp.eventId,
+          provider: PROVIDER,
+          createdAt: transcriptStamp.createdAt,
+          threadId: context.session.threadId,
+          payload: {
+            taskId: RuntimeTaskId.make(tool.agentId),
+            ordinal: nextTranscriptOrdinal(context.taskTranscriptOrdinals, tool.agentId),
+            kind: "tool_result",
+            content: {
+              toolName: tool.toolName,
+              result: toolResult.block,
+            },
+            timestamp: transcriptStamp.createdAt,
+          },
+        });
+      }
 
       // The Workflow tool's result carries the run handles (runId, scriptPath,
       // transcriptDir, sessionUrl). Attach them to the workflow's task agent so
@@ -4256,6 +4351,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const inFlightTools = new Map<number, ToolInFlight>();
       const claudeTasks = new Map<string, ClaudeTaskState>();
       const taskAgents = new Map<string, ClaudeTaskAgentState>();
+      const taskTranscriptOrdinals = new Map<string, number>();
       const pendingTaskModels = new Map<string, string>();
       const workflowMemberFingerprints = new Map<string, string>();
       const liveTaskIds = new Set<string>();
@@ -4846,6 +4942,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         inFlightTools,
         claudeTasks,
         taskAgents,
+        taskTranscriptOrdinals,
         pendingTaskModels,
         workflowMemberFingerprints,
         liveTaskIds,
