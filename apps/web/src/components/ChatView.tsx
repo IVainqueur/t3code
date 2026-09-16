@@ -355,6 +355,8 @@ import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
+import { ConversationFindBar } from "./chat/ConversationFindBar";
+import type { ConversationFindMatch } from "./chat/conversationFindMatches";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
 import { resolveTimelineIsAtEnd, worktreeSetupAgentStarted } from "./chat/MessagesTimeline.logic";
 import { resolveComposerTimelineInset, resolveScrollToEndClearance } from "./composerFooterLayout";
@@ -1752,6 +1754,56 @@ export default function ChatView(props: ChatViewProps) {
     () => legendListRef.current?.getScrollableNode() ?? null,
     [],
   );
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findMatches, setFindMatches] = useState<ConversationFindMatch[]>([]);
+  const [findMatchIndex, setFindMatchIndex] = useState(0);
+  const findActiveMatch = findMatches[findMatchIndex] ?? null;
+  const findActiveMatchKey = findActiveMatch
+    ? `${findActiveMatch.messageId}:${findActiveMatch.occurrenceInRow}`
+    : null;
+  const lastScrolledFindMatchKeyRef = useRef<string | null>(null);
+
+  const closeConversationFind = useCallback(() => {
+    setFindOpen(false);
+    setFindQuery("");
+    setFindMatches([]);
+    setFindMatchIndex(0);
+  }, []);
+
+  useEffect(() => {
+    if (!findActiveMatch || lastScrolledFindMatchKeyRef.current === findActiveMatchKey) return;
+    lastScrolledFindMatchKeyRef.current = findActiveMatchKey;
+    void legendListRef.current?.scrollToIndex({
+      index: findActiveMatch.rowIndex,
+      animated: true,
+      viewOffset: 24,
+    });
+  }, [findActiveMatch, findActiveMatchKey]);
+
+  const handleFindQueryChange = useCallback((query: string) => {
+    setFindQuery(query);
+    setFindMatchIndex(0);
+  }, []);
+
+  const handleFindMatchesChange = useCallback((matches: ConversationFindMatch[]) => {
+    setFindMatches(matches);
+    setFindMatchIndex((current) =>
+      matches.length === 0 ? 0 : Math.min(current, matches.length - 1),
+    );
+  }, []);
+
+  const goToNextFindMatch = useCallback(() => {
+    setFindMatchIndex((current) =>
+      findMatches.length === 0 ? 0 : (current + 1) % findMatches.length,
+    );
+  }, [findMatches.length]);
+
+  const goToPreviousFindMatch = useCallback(() => {
+    setFindMatchIndex((current) =>
+      findMatches.length === 0 ? 0 : (current - 1 + findMatches.length) % findMatches.length,
+    );
+  }, [findMatches.length]);
   const [composerOverlayElement, setComposerOverlayElement] = useState<HTMLDivElement | null>(null);
   // Space the timeline keeps clear above its end. Tracks the overlay while the
   // composer is expanded and holds that height while it rests, so the resting
@@ -1905,6 +1957,10 @@ export default function ChatView(props: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
+  // A thread switch invalidates match row indices from the previous thread's rows.
+  useEffect(() => {
+    closeConversationFind();
+  }, [activeThreadId, closeConversationFind]);
   const activeThreadEnvironmentId = activeThread?.environmentId ?? null;
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: activeThread?.environmentId ?? null,
@@ -6756,6 +6812,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "conversation.find.toggle") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (findOpen) closeConversationFind();
+        else setFindOpen(true);
+        return;
+      }
+
       if (command === "modelPicker.toggle") {
         event.preventDefault();
         event.stopPropagation();
@@ -6818,6 +6882,8 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadPinned,
     activeThreadSettled,
     canInterruptRunningThread,
+    closeConversationFind,
+    findOpen,
     terminalUiState.terminalOpen,
     terminalUiState.activeTerminalId,
     activeThreadId,
@@ -9397,8 +9463,22 @@ export default function ChatView(props: ChatViewProps) {
             </div>
             {/* Messages Wrapper */}
             <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+              {findOpen ? (
+                <ConversationFindBar
+                  query={findQuery}
+                  onQueryChange={handleFindQueryChange}
+                  matchCount={findMatches.length}
+                  activeMatchNumber={findMatches.length === 0 ? null : findMatchIndex + 1}
+                  onNext={goToNextFindMatch}
+                  onPrevious={goToPreviousFindMatch}
+                  onClose={closeConversationFind}
+                />
+              ) : null}
               {/* Messages — LegendList handles virtualization and scrolling internally */}
               <MessagesTimeline
+                findQuery={findQuery}
+                findActiveMatch={findActiveMatch}
+                onFindMatchesChange={handleFindMatchesChange}
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
                 {...(!paintOnlyDisplayedTimeline
