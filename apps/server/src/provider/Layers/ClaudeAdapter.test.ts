@@ -1290,7 +1290,7 @@ describe("ClaudeAdapterLive", () => {
       return Effect.gen(function* () {
         const adapter = yield* ClaudeAdapter;
 
-        const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 13).pipe(
+        const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 10).pipe(
           Stream.runCollect,
           Effect.forkChild,
         );
@@ -1322,58 +1322,38 @@ describe("ClaudeAdapterLive", () => {
           session_id: "sdk-session-narrate",
         } as unknown as SDKMessage);
 
-        // A subagent's text narration, tagged with parent_tool_use_id like the
-        // SDK does for Task-tool children.
+        // Real subagents (confirmed via live capture against an actual
+        // Claude Code session — direct-spawn `local_agent` tasks never
+        // surface their content through `stream_event`/`content_block_*`
+        // frames at all) deliver their content as complete `assistant`/`user`
+        // message snapshots tagged with `parent_tool_use_id`, one message per
+        // completed content block (per the SDK's own doc comment on
+        // `SDKAssistantMessage`). No stream_event, no per-delta buffering.
         harness.query.emit({
-          type: "stream_event",
+          type: "assistant",
           session_id: "sdk-session-narrate",
-          uuid: "stream-narrate-start",
+          uuid: "assistant-narrate-text",
           parent_tool_use_id: "tool-parent-1",
-          event: {
-            type: "content_block_start",
-            index: 0,
-            content_block: { type: "text", text: "" },
+          message: {
+            role: "assistant",
+            model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            content: [{ type: "text", text: "Investigating the failing test..." }],
+            stop_reason: null,
           },
         } as unknown as SDKMessage);
-        // Claude streams narration at token-chunk granularity. The adapter
-        // must coalesce these into ONE transcript entry for the block, not one
-        // per frame.
-        for (const [index, chunk] of ["Investigating ", "the failing ", "test..."].entries()) {
-          harness.query.emit({
-            type: "stream_event",
-            session_id: "sdk-session-narrate",
-            uuid: `stream-narrate-delta-${index}`,
-            parent_tool_use_id: "tool-parent-1",
-            event: {
-              type: "content_block_delta",
-              index: 0,
-              delta: { type: "text_delta", text: chunk },
-            },
-          } as unknown as SDKMessage);
-        }
-        harness.query.emit({
-          type: "stream_event",
-          session_id: "sdk-session-narrate",
-          uuid: "stream-narrate-stop",
-          parent_tool_use_id: "tool-parent-1",
-          event: { type: "content_block_stop", index: 0 },
-        } as unknown as SDKMessage);
 
-        // A subagent-owned tool call, also tagged with parent_tool_use_id.
         harness.query.emit({
-          type: "stream_event",
+          type: "assistant",
           session_id: "sdk-session-narrate",
-          uuid: "stream-narrate-tool-start",
+          uuid: "assistant-narrate-tool-use",
           parent_tool_use_id: "tool-parent-1",
-          event: {
-            type: "content_block_start",
-            index: 1,
-            content_block: {
-              type: "tool_use",
-              id: "tool-child-1",
-              name: "Grep",
-              input: { pattern: "foo" },
-            },
+          message: {
+            role: "assistant",
+            model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            content: [
+              { type: "tool_use", id: "tool-child-1", name: "Grep", input: { pattern: "foo" } },
+            ],
+            stop_reason: null,
           },
         } as unknown as SDKMessage);
 

@@ -2219,6 +2219,64 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
   });
 
+  /**
+   * Emits one `task.transcriptAppended` per content block found in a
+   * subagent's own message snapshot. Real-world subagents (direct-spawn
+   * `local_agent` tasks, confirmed via live debug capture) never surface
+   * their content through `stream_event`/`content_block_*` frames at all —
+   * every one of theirs arrives as a complete `assistant`/`user` message
+   * carrying `parent_tool_use_id`, with `message.content` holding the block(s)
+   * that message delivers (per the SDK's own doc: "the CLI emits one
+   * assistant message per completed content block"). No buffering needed
+   * here: each call already receives one finished block.
+   */
+  const emitTranscriptBlocksFromSnapshot = Effect.fn("emitTranscriptBlocksFromSnapshot")(function* (
+    context: ClaudeSessionContext,
+    taskId: string,
+    content: unknown,
+  ) {
+    if (!Array.isArray(content)) {
+      return;
+    }
+    for (const entry of content) {
+      if (!entry || typeof entry !== "object") {
+        continue;
+      }
+      const block = entry as Record<string, unknown>;
+      const transcriptContent =
+        block.type === "text" && typeof block.text === "string"
+          ? { kind: "text" as const, content: { text: block.text } }
+          : block.type === "thinking" && typeof block.thinking === "string"
+            ? { kind: "thinking" as const, content: { thinking: block.thinking } }
+            : block.type === "tool_use"
+              ? {
+                  kind: "tool_use" as const,
+                  content: { toolName: block.name, input: block.input },
+                }
+              : block.type === "tool_result"
+                ? { kind: "tool_result" as const, content: block }
+                : undefined;
+      if (!transcriptContent) {
+        continue;
+      }
+      const stamp = yield* makeEventStamp();
+      yield* offerRuntimeEvent({
+        type: "task.transcriptAppended",
+        eventId: stamp.eventId,
+        provider: PROVIDER,
+        createdAt: stamp.createdAt,
+        threadId: context.session.threadId,
+        payload: {
+          taskId: RuntimeTaskId.make(taskId),
+          ordinal: nextTranscriptOrdinal(context.taskTranscriptOrdinals, taskId),
+          kind: transcriptContent.kind,
+          content: transcriptContent.content,
+          timestamp: stamp.createdAt,
+        },
+      });
+    }
+  });
+
   const completeAssistantTextBlock = Effect.fn("completeAssistantTextBlock")(function* (
     context: ClaudeSessionContext,
     block: AssistantTextBlockState,
@@ -3125,6 +3183,21 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return;
     }
 
+    // Subagent-owned user snapshots (parent_tool_use_id set) carry the
+    // subagent's own tool_result blocks — never the parent's. Same shape as
+    // handleAssistantMessage's subagent branch: capture into the owning
+    // task's transcript and return before this reaches the inFlightTools
+    // matching below, which only ever tracks the parent's own tool calls.
+    const userParentToolUseId = (message as { parent_tool_use_id?: string | null })
+      .parent_tool_use_id;
+    if (userParentToolUseId !== null && userParentToolUseId !== undefined) {
+      const owningTaskId = agentIdForParentToolUse(context.taskAgents, userParentToolUseId);
+      if (owningTaskId !== undefined) {
+        yield* emitTranscriptBlocksFromSnapshot(context, owningTaskId, message.message.content);
+      }
+      return;
+    }
+
     if (context.turnState) {
       context.turnState.items.push(message.message);
     }
@@ -3321,6 +3394,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       // The snapshot's message.model is the authoritative API model the
       // subagent actually ran on — refine the seeded launch-time value.
       const owningTaskId = agentIdForParentToolUse(context.taskAgents, assistantParentToolUseId);
+      if (owningTaskId !== undefined) {
+        yield* emitTranscriptBlocksFromSnapshot(context, owningTaskId, message.message.content);
+      }
       const snapshotModel = trimmedString(message.message.model);
       const owningAgent = owningTaskId ? context.taskAgents.get(owningTaskId) : undefined;
       if (snapshotModel) {
@@ -4905,6 +4981,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,
+        // Without this, the SDK only forwards subagent tool_use/tool_result
+        // blocks (enough for the existing heartbeat counter) and drops
+        // narration/thinking entirely — task.transcriptAppended needs the
+        // full subagent conversation forwarded to capture anything at all.
+        forwardSubagentText: true,
         canUseTool,
         onUserDialog,
         supportedDialogKinds: ["resume_return"],
