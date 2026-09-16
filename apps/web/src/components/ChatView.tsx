@@ -2929,9 +2929,14 @@ export default function ChatView(props: ChatViewProps) {
   const agentPanelModel = useMemo(
     () =>
       deriveAgentPanelModel({
-        agents: foldSubagentActivities(threadActivities, { sessionLive: agentSessionLive }),
+        agents: foldSubagentActivities(threadActivities, {
+          sessionLive: agentSessionLive,
+          ...(activeThread?.dismissedTaskIds
+            ? { dismissedTaskIds: activeThread.dismissedTaskIds }
+            : {}),
+        }),
       }),
-    [agentSessionLive, threadActivities],
+    [activeThread?.dismissedTaskIds, agentSessionLive, threadActivities],
   );
   // Agents panel rows open the subagent's own transcript view.
   const handleOpenSubagent = useCallback(
