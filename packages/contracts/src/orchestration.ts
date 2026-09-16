@@ -18,6 +18,7 @@ import {
   PositiveInt,
   ProjectId,
   ProviderItemId,
+  RuntimeTaskId,
   ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
@@ -767,6 +768,12 @@ export const OrchestrationThread = Schema.Struct({
   // Pending-only state. Optional so older servers remain compatible.
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
+  // Subagent tasks the user dismissed from the Agents panel. Dismissal only
+  // hides the task from the default view; it stays restorable.
+  // Optional so payloads from pre-dismiss servers still decode.
+  dismissedTaskIds: Schema.Array(RuntimeTaskId).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   deletedAt: Schema.NullOr(IsoDateTime),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(
@@ -836,6 +843,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   titleRegeneration: Schema.optional(Schema.NullOr(ThreadTitleRegeneration)),
   titleState: Schema.optional(Schema.NullOr(ThreadTitleState)),
+  // See OrchestrationThread.dismissedTaskIds.
+  dismissedTaskIds: Schema.Array(RuntimeTaskId).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   session: Schema.NullOr(OrchestrationSession),
   latestUserMessageAt: Schema.NullOr(IsoDateTime),
   hasPendingApprovals: Schema.Boolean,
@@ -1115,6 +1126,20 @@ const ThreadUnsnoozeCommand = Schema.Struct({
   reason: Schema.Literal("user"),
 });
 
+const TaskDismissCommand = Schema.Struct({
+  type: Schema.Literal("task.dismiss"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  taskId: RuntimeTaskId,
+});
+
+const TaskRestoreCommand = Schema.Struct({
+  type: Schema.Literal("task.restore"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  taskId: RuntimeTaskId,
+});
+
 const ThreadPinCommand = Schema.Struct({
   type: Schema.Literal("thread.pin"),
   commandId: CommandId,
@@ -1346,6 +1371,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadUnsettleCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
+  TaskDismissCommand,
+  TaskRestoreCommand,
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
@@ -1379,6 +1406,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadUnsettleCommand,
   ThreadSnoozeCommand,
   ThreadUnsnoozeCommand,
+  TaskDismissCommand,
+  TaskRestoreCommand,
   ThreadPinCommand,
   ThreadUnpinCommand,
   ThreadPinReorderCommand,
@@ -1607,6 +1636,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
   "thread.activity-appended",
+  "task.dismissed",
+  "task.restored",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1704,6 +1735,19 @@ export const ThreadUnsnoozedPayload = Schema.Struct({
   // thread.unsettled's activity resets. Timer wakes emit no event: clients
   // derive them from snoozedUntil passing.
   reason: Schema.Literals(["user", "activity"]),
+  updatedAt: IsoDateTime,
+});
+
+export const TaskDismissedPayload = Schema.Struct({
+  threadId: ThreadId,
+  taskId: RuntimeTaskId,
+  dismissedAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+export const TaskRestoredPayload = Schema.Struct({
+  threadId: ThreadId,
+  taskId: RuntimeTaskId,
   updatedAt: IsoDateTime,
 });
 
@@ -2079,6 +2123,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("task.dismissed"),
+    payload: TaskDismissedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("task.restored"),
+    payload: TaskRestoredPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

@@ -1509,6 +1509,99 @@ it.effect("rejects thread history imports without messages", () =>
   }),
 );
 
+it.effect("decodes task.dismiss and task.restore commands", () =>
+  Effect.gen(function* () {
+    const dismiss = yield* decodeClientOrchestrationCommand({
+      type: "task.dismiss",
+      commandId: "cmd-task-dismiss-1",
+      threadId: "thread-1",
+      taskId: "task-1",
+    });
+    const restore = yield* decodeClientOrchestrationCommand({
+      type: "task.restore",
+      commandId: "cmd-task-restore-1",
+      threadId: "thread-1",
+      taskId: "task-1",
+    });
+
+    assert.strictEqual(dismiss.type, "task.dismiss");
+    assert.strictEqual(restore.type, "task.restore");
+  }),
+);
+
+it.effect("decodes task.dismissed and task.restored events", () =>
+  Effect.gen(function* () {
+    const dismissed = yield* decodeOrchestrationEvent({
+      sequence: 1,
+      eventId: "event-task-dismiss-1",
+      aggregateKind: "thread",
+      aggregateId: "thread-1",
+      type: "task.dismissed",
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      commandId: "cmd-task-dismiss-1",
+      causationEventId: null,
+      correlationId: "cmd-task-dismiss-1",
+      metadata: {},
+      payload: {
+        threadId: "thread-1",
+        taskId: "task-1",
+        dismissedAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+    const restored = yield* decodeOrchestrationEvent({
+      sequence: 2,
+      eventId: "event-task-restore-1",
+      aggregateKind: "thread",
+      aggregateId: "thread-1",
+      type: "task.restored",
+      occurredAt: "2026-01-02T00:00:00.000Z",
+      commandId: "cmd-task-restore-1",
+      causationEventId: null,
+      correlationId: "cmd-task-restore-1",
+      metadata: {},
+      payload: {
+        threadId: "thread-1",
+        taskId: "task-1",
+        updatedAt: "2026-01-02T00:00:00.000Z",
+      },
+    });
+
+    if (dismissed.type !== "task.dismissed") {
+      assert.fail(`Expected task.dismissed event, received ${dismissed.type}.`);
+    }
+    assert.strictEqual(dismissed.payload.dismissedAt, "2026-01-01T00:00:00.000Z");
+    assert.strictEqual(restored.type, "task.restored");
+  }),
+);
+
+it.effect("defaults dismissedTaskIds to an empty array when decoding a pre-dismiss thread", () =>
+  Effect.gen(function* () {
+    const thread = yield* decodeOrchestrationThread({
+      id: "thread-1",
+      projectId: "project-1",
+      title: "Thread 1",
+      modelSelection: { provider: "codex", model: "gpt-5.4" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      latestTurn: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      archivedAt: null,
+      session: null,
+      deletedAt: null,
+      messages: [],
+      proposedPlans: [],
+      activities: [],
+      checkpoints: [],
+    });
+
+    assert.deepStrictEqual(thread.dismissedTaskIds, []);
+  }),
+);
+
 it("isProviderSendTurnSupportedImageMimeType accepts raster formats and rejects svg", () => {
   assert.strictEqual(isProviderSendTurnSupportedImageMimeType("image/png"), true);
   assert.strictEqual(isProviderSendTurnSupportedImageMimeType("IMAGE/JPEG"), true);
