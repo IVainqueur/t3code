@@ -52,6 +52,7 @@ const SNAPSHOT: OrchestrationShellSnapshot = {
       hasPendingApprovals: false,
       hasPendingUserInput: false,
       hasActionableProposedPlan: false,
+      dismissedTaskIds: [],
     },
   ],
 };

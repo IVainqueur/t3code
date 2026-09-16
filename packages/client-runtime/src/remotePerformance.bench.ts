@@ -51,6 +51,7 @@ const thread: OrchestrationThread = {
   activities: [],
   checkpoints: [],
   session: null,
+  dismissedTaskIds: [],
 };
 const target = new PrimaryConnectionTarget({
   environmentId: EnvironmentId.make("remote-1"),

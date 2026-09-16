@@ -140,6 +140,7 @@ export function applyThreadDetailEvent(
           activities: [],
           checkpoints: [],
           session: null,
+          dismissedTaskIds: [],
         },
       };
 

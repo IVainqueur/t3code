@@ -105,6 +105,7 @@ const THREAD_SHELL = {
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
+  dismissedTaskIds: [],
 } as const;
 
 const SNAPSHOT: OrchestrationShellSnapshot = {
@@ -220,6 +221,7 @@ describe("environment entity projections", () => {
       proposedPlans: [],
       activities: [],
       checkpoints: [],
+      dismissedTaskIds: [],
     } satisfies OrchestrationThread & { readonly environmentId: EnvironmentId };
     const shell = {
       ...THREAD_SHELL,
@@ -229,6 +231,7 @@ describe("environment entity projections", () => {
       worktreePath: "/repo/current-worktree",
       activeOrderKey: "f",
       unsettledAt: "2026-03-09T12:00:00.000Z",
+      dismissedTaskIds: [],
     };
 
     const merged = mergeEnvironmentThread(detail, shell);
@@ -506,6 +509,7 @@ describe("environment entity projections", () => {
       proposedPlans: [],
       activities: [],
       checkpoints: [],
+      dismissedTaskIds: [],
     } satisfies OrchestrationThread;
 
     harness.registry.set(

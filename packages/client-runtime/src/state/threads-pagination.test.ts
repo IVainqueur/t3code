@@ -111,6 +111,7 @@ const BASE_THREAD: OrchestrationThread = {
   activities: [],
   checkpoints: [checkpoint("turn-2", 2)],
   session: null,
+  dismissedTaskIds: [],
 };
 
 const WINDOWED_SNAPSHOT: OrchestrationThreadDetailSnapshot = {

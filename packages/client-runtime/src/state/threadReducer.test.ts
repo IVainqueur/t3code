@@ -45,6 +45,7 @@ const baseThread: OrchestrationThread = {
   activities: [],
   checkpoints: [],
   session: null,
+  dismissedTaskIds: [],
 };
 
 describe("applyThreadDetailEvent", () => {

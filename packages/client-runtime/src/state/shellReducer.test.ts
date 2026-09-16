@@ -44,6 +44,7 @@ const stubThread = {
   hasPendingUserInput: false,
   hasActionableProposedPlan: false,
   session: null,
+  dismissedTaskIds: [],
 } as const;
 
 describe("applyShellStreamEvent", () => {
