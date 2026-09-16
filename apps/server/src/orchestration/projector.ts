@@ -46,6 +46,8 @@ import {
   ThreadPullRequestSyncedPayload,
   ThreadPullRequestUnlinkedPayload,
   ThreadSnoozedPayload,
+  TaskDismissedPayload,
+  TaskRestoredPayload,
   ThreadUnpinnedPayload,
   ThreadUnarchivedPayload,
   ThreadUnsettledPayload,
@@ -552,6 +554,38 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
           }),
         })),
+      );
+
+    case "task.dismissed":
+      return decodeForEvent(TaskDismissedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const existing = nextBase.threads.find((thread) => thread.id === payload.threadId);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              dismissedTaskIds: existing?.dismissedTaskIds.includes(payload.taskId)
+                ? existing.dismissedTaskIds
+                : [...(existing?.dismissedTaskIds ?? []), payload.taskId],
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
+      );
+
+    case "task.restored":
+      return decodeForEvent(TaskRestoredPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const existing = nextBase.threads.find((thread) => thread.id === payload.threadId);
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              dismissedTaskIds: (existing?.dismissedTaskIds ?? []).filter(
+                (id) => id !== payload.taskId,
+              ),
+              updatedAt: payload.updatedAt,
+            }),
+          };
+        }),
       );
 
     case "thread.pinned":
