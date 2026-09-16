@@ -7,6 +7,7 @@ import {
   EventId,
   MessageId,
   ProjectId,
+  RuntimeTaskId,
   ThreadId,
   type ThreadPullRequestSnapshot,
   ThreadLinkedPullRequest,
@@ -4639,5 +4640,83 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
         cursorBeforeRetry[0]!.lastAppliedSequence,
       );
     }),
+  );
+
+  it.effect(
+    "persists task.dismiss/task.restore so the snapshot query replays dismissedTaskIds",
+    () =>
+      Effect.gen(function* () {
+        const engine = yield* OrchestrationEngineService;
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const createdAt = "2026-01-01T00:00:00.000Z";
+        const projectId = ProjectId.make("project-dismissed-tasks");
+        const threadId = ThreadId.make("thread-dismissed-tasks");
+        const taskId = RuntimeTaskId.make("task-dismissed-1");
+
+        yield* engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.make("cmd-dismissed-tasks-project"),
+          projectId,
+          title: "Dismissed Tasks Project",
+          workspaceRoot: "/tmp/project-dismissed-tasks",
+          defaultModelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          createdAt,
+        });
+        yield* engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("cmd-dismissed-tasks-thread"),
+          threadId,
+          projectId,
+          title: "Dismissed Tasks Thread",
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("codex"),
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        });
+
+        const readDismissed = Effect.gen(function* () {
+          const shell = yield* snapshotQuery.getThreadShellById(threadId);
+          const detail = yield* snapshotQuery.getThreadDetailById(threadId);
+          return {
+            shell: Option.getOrThrow(shell).dismissedTaskIds,
+            detail: Option.getOrThrow(detail).dismissedTaskIds,
+          };
+        });
+
+        assert.deepEqual(yield* readDismissed, { shell: [], detail: [] });
+
+        yield* engine.dispatch({
+          type: "task.dismiss",
+          commandId: CommandId.make("cmd-dismissed-tasks-dismiss"),
+          threadId,
+          taskId,
+        });
+        assert.deepEqual(yield* readDismissed, { shell: [taskId], detail: [taskId] });
+
+        // Re-dismissing is idempotent, not a duplicate entry.
+        yield* engine.dispatch({
+          type: "task.dismiss",
+          commandId: CommandId.make("cmd-dismissed-tasks-dismiss-again"),
+          threadId,
+          taskId,
+        });
+        assert.deepEqual(yield* readDismissed, { shell: [taskId], detail: [taskId] });
+
+        yield* engine.dispatch({
+          type: "task.restore",
+          commandId: CommandId.make("cmd-dismissed-tasks-restore"),
+          threadId,
+          taskId,
+        });
+        assert.deepEqual(yield* readDismissed, { shell: [], detail: [] });
+      }),
   );
 });

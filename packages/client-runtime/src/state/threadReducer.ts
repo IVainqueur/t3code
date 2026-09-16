@@ -216,6 +216,32 @@ export function applyThreadDetailEvent(
         },
       };
 
+    // Dismiss/restore are idempotent: a duplicate event leaves the id set as
+    // it was, so a double-click or raced client cannot desync the live list.
+    case "task.dismissed":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          dismissedTaskIds: thread.dismissedTaskIds.includes(event.payload.taskId)
+            ? thread.dismissedTaskIds
+            : [...thread.dismissedTaskIds, event.payload.taskId],
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
+    case "task.restored":
+      return {
+        kind: "updated",
+        thread: {
+          ...thread,
+          dismissedTaskIds: thread.dismissedTaskIds.filter(
+            (taskId) => taskId !== event.payload.taskId,
+          ),
+          updatedAt: event.payload.updatedAt,
+        },
+      };
+
     case "thread.pinned":
       return {
         kind: "updated",
