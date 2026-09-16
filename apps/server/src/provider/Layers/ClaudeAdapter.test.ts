@@ -1335,16 +1335,28 @@ describe("ClaudeAdapterLive", () => {
             content_block: { type: "text", text: "" },
           },
         } as unknown as SDKMessage);
+        // Claude streams narration at token-chunk granularity. The adapter
+        // must coalesce these into ONE transcript entry for the block, not one
+        // per frame.
+        for (const [index, chunk] of ["Investigating ", "the failing ", "test..."].entries()) {
+          harness.query.emit({
+            type: "stream_event",
+            session_id: "sdk-session-narrate",
+            uuid: `stream-narrate-delta-${index}`,
+            parent_tool_use_id: "tool-parent-1",
+            event: {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: chunk },
+            },
+          } as unknown as SDKMessage);
+        }
         harness.query.emit({
           type: "stream_event",
           session_id: "sdk-session-narrate",
-          uuid: "stream-narrate-delta",
+          uuid: "stream-narrate-stop",
           parent_tool_use_id: "tool-parent-1",
-          event: {
-            type: "content_block_delta",
-            index: 0,
-            delta: { type: "text_delta", text: "Investigating the failing test..." },
-          },
+          event: { type: "content_block_stop", index: 0 },
         } as unknown as SDKMessage);
 
         // A subagent-owned tool call, also tagged with parent_tool_use_id.

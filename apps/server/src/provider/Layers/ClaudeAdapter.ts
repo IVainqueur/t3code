@@ -338,6 +338,15 @@ interface ClaudeSessionContext {
   /** Next transcript ordinal to assign per taskId, for task.transcriptAppended. */
   readonly taskTranscriptOrdinals: Map<string, number>;
   /**
+   * Subagent narration accumulated per content block, keyed by
+   * `${taskId}:${contentBlockIndex}`. Claude streams narration at token-chunk
+   * granularity, so one paragraph arrives as dozens of deltas; buffering here
+   * and flushing on `content_block_stop` makes the transcript one event per
+   * block instead of one per frame. Mirrors `assistantTextBlocks` for the
+   * parent's own text.
+   */
+  readonly taskNarrationBlocks: Map<string, { readonly kind: "text" | "thinking"; text: string }>;
+  /**
    * Authoritative subagent models from assistant snapshots that arrived before
    * their task_started registered the task, keyed by parent_tool_use_id.
    * Written through `rememberPendingTaskModel`, consumed by task_started.
@@ -1262,6 +1271,11 @@ function agentIdForParentToolUse(
  * starting at 0. Scoped per taskId so interleaved subagents each get their
  * own dense sequence.
  */
+/** Buffer key for one subagent narration content block. */
+function narrationBlockKey(taskId: string, blockIndex: number): string {
+  return `${taskId}:${blockIndex}`;
+}
+
 function nextTranscriptOrdinal(ordinals: Map<string, number>, taskId: string): number {
   const current = ordinals.get(taskId) ?? 0;
   ordinals.set(taskId, current + 1);
@@ -2156,6 +2170,55 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     },
   );
 
+  /**
+   * Emit one `task.transcriptAppended` for a completed subagent narration
+   * block, consuming its buffer. One ordinal per block, not per delta frame.
+   */
+  const flushTaskNarrationBlock = Effect.fn("flushTaskNarrationBlock")(function* (
+    context: ClaudeSessionContext,
+    taskId: string,
+    blockIndex: number,
+  ) {
+    const key = narrationBlockKey(taskId, blockIndex);
+    const buffered = context.taskNarrationBlocks.get(key);
+    if (buffered === undefined) {
+      return;
+    }
+    context.taskNarrationBlocks.delete(key);
+    if (buffered.text.length === 0) {
+      return;
+    }
+    const stamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "task.transcriptAppended",
+      eventId: stamp.eventId,
+      provider: PROVIDER,
+      createdAt: stamp.createdAt,
+      threadId: context.session.threadId,
+      payload: {
+        taskId: RuntimeTaskId.make(taskId),
+        ordinal: nextTranscriptOrdinal(context.taskTranscriptOrdinals, taskId),
+        kind: buffered.kind,
+        content: buffered.kind === "text" ? { text: buffered.text } : { thinking: buffered.text },
+        timestamp: stamp.createdAt,
+      },
+    });
+  });
+
+  /** Flush every still-open narration block for a task that just terminated. */
+  const flushTaskNarrationBlocks = Effect.fn("flushTaskNarrationBlocks")(function* (
+    context: ClaudeSessionContext,
+    taskId: string,
+  ) {
+    const prefix = `${taskId}:`;
+    for (const key of Array.from(context.taskNarrationBlocks.keys())) {
+      if (!key.startsWith(prefix)) continue;
+      const blockIndex = Number(key.slice(prefix.length));
+      if (!Number.isFinite(blockIndex)) continue;
+      yield* flushTaskNarrationBlock(context, taskId, blockIndex);
+    }
+  });
+
   const completeAssistantTextBlock = Effect.fn("completeAssistantTextBlock")(function* (
     context: ClaudeSessionContext,
     block: AssistantTextBlockState,
@@ -2723,23 +2786,19 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               ? event.delta.thinking
               : "";
         if (narrationText.length > 0) {
-          const stamp = yield* makeEventStamp();
-          yield* offerRuntimeEvent({
-            type: "task.transcriptAppended",
-            eventId: stamp.eventId,
-            provider: PROVIDER,
-            createdAt: stamp.createdAt,
-            threadId: context.session.threadId,
-            payload: {
-              taskId: RuntimeTaskId.make(owningTaskId),
-              ordinal: nextTranscriptOrdinal(context.taskTranscriptOrdinals, owningTaskId),
-              kind: narrationKind,
-              content:
-                narrationKind === "text" ? { text: narrationText } : { thinking: narrationText },
-              timestamp: stamp.createdAt,
-            },
-          });
+          // Accumulate; the block's content_block_stop below emits one event.
+          const key = narrationBlockKey(owningTaskId, event.index);
+          const buffered = context.taskNarrationBlocks.get(key);
+          if (buffered === undefined) {
+            context.taskNarrationBlocks.set(key, { kind: narrationKind, text: narrationText });
+          } else {
+            buffered.text += narrationText;
+          }
         }
+      }
+
+      if (owningTaskId !== undefined && event.type === "content_block_stop") {
+        yield* flushTaskNarrationBlock(context, owningTaskId, event.index);
       }
 
       // Drop only the subagent's narration (text/thinking) from the parent's
@@ -3758,6 +3817,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       }
       case "task_notification": {
         context.liveTaskIds.delete(message.task_id);
+        // A narration block whose content_block_stop never arrived would
+        // otherwise be lost; flush before the terminal event.
+        yield* flushTaskNarrationBlocks(context, message.task_id);
         yield* emitThreadTokenUsage(
           context,
           normalizeClaudeTaskProgressTokenUsage(message.usage, context),
@@ -4352,6 +4414,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const claudeTasks = new Map<string, ClaudeTaskState>();
       const taskAgents = new Map<string, ClaudeTaskAgentState>();
       const taskTranscriptOrdinals = new Map<string, number>();
+      const taskNarrationBlocks = new Map<
+        string,
+        { readonly kind: "text" | "thinking"; text: string }
+      >();
       const pendingTaskModels = new Map<string, string>();
       const workflowMemberFingerprints = new Map<string, string>();
       const liveTaskIds = new Set<string>();
@@ -4943,6 +5009,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         claudeTasks,
         taskAgents,
         taskTranscriptOrdinals,
+        taskNarrationBlocks,
         pendingTaskModels,
         workflowMemberFingerprints,
         liveTaskIds,
