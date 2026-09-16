@@ -2623,6 +2623,23 @@ export default function Sidebar() {
     deleteThread,
     dismissTask,
   } = useThreadActions();
+  // SidebarThreadRow is memoized (shallow prop equality) and every row needs
+  // this callback, so it must be one stable reference for the whole list —
+  // a fresh closure per row per render (even one bound only for rows with
+  // subagents) would defeat memo for every row, not just those rows. The
+  // row's own prop signature is bare `(taskId) => void` (Task 9/10 depend on
+  // that exact shape), so the thread a given taskId belongs to is resolved
+  // through this ref-backed map instead of being captured in the closure.
+  // Rows update their own entries as they render (see renderThreadRowInner).
+  const taskThreadRefsRef = useRef<Map<RuntimeTaskId, ScopedThreadRef>>(new Map());
+  const handleDismissSubagent = useCallback(
+    (taskId: RuntimeTaskId) => {
+      const threadRef = taskThreadRefsRef.current.get(taskId);
+      if (!threadRef) return;
+      void dismissTask(threadRef, taskId);
+    },
+    [dismissTask],
+  );
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -5353,9 +5370,14 @@ export default function Sidebar() {
                       ) => {
                         const threadRef = scopeThreadRef(thread.environmentId, thread.id);
                         const threadKey = scopedThreadKey(threadRef);
-                        const handleDismissSubagent = (taskId: RuntimeTaskId) => {
-                          void dismissTask(threadRef, taskId);
-                        };
+                        // Placeholder until a later task wires a real per-thread
+                        // roster (see EMPTY_SIDEBAR_SUBAGENTS); recorded here so
+                        // handleDismissSubagent's ref-backed lookup is correct
+                        // the moment real subagents start flowing through.
+                        const rowSubagents = EMPTY_SIDEBAR_SUBAGENTS;
+                        for (const agent of rowSubagents) {
+                          taskThreadRefsRef.current.set(agent.id as RuntimeTaskId, threadRef);
+                        }
                         // Settled and snoozed are the ONLY things that collapse a
                         // row: every other thread is a full card. Density comes
                         // from users (or the auto rules) actually parking work,
@@ -5459,7 +5481,7 @@ export default function Sidebar() {
                             onSnooze={attemptSnooze}
                             onUnsnooze={attemptUnsnooze}
                             onUnpin={attemptUnpin}
-                            subagents={EMPTY_SIDEBAR_SUBAGENTS}
+                            subagents={rowSubagents}
                             onDismissSubagent={handleDismissSubagent}
                             onOpenSubagent={noopOpenSubagent}
                             onAcknowledgeWoke={acknowledgeWoke}
