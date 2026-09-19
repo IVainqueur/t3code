@@ -57,6 +57,8 @@ export type RevertThreadCheckpointInput = CommandInput<"thread.checkpoint.revert
   readonly restoreFiles?: boolean;
 };
 export type StopThreadSessionInput = CommandInput<"thread.session.stop">;
+export type DismissSubagentTaskInput = CommandInput<"task.dismiss">;
+export type RestoreSubagentTaskInput = CommandInput<"task.restore">;
 
 type DispatchTag = typeof ORCHESTRATION_WS_METHODS.dispatchCommand;
 type CommandEffect = Effect.Effect<
@@ -375,5 +377,25 @@ export const stopThreadSession: (input: StopThreadSessionInput) => CommandEffect
     type: "thread.session.stop",
     commandId: metadata.commandId,
     createdAt: metadata.createdAt,
+  });
+});
+
+export const dismissSubagentTask: (input: DismissSubagentTaskInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.dismissSubagentTask",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "task.dismiss",
+    commandId: yield* commandId(input),
+  });
+});
+
+export const restoreSubagentTask: (input: RestoreSubagentTaskInput) => CommandEffect = Effect.fn(
+  "EnvironmentCommands.restoreSubagentTask",
+)(function* (input) {
+  return yield* dispatch({
+    ...input,
+    type: "task.restore",
+    commandId: yield* commandId(input),
   });
 });

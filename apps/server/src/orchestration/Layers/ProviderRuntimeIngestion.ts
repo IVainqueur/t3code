@@ -632,6 +632,26 @@ export function runtimeEventToActivities(
       ];
     }
 
+    case "task.transcriptAppended": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "task.transcriptAppended",
+          summary: `Subagent ${event.payload.kind} update`,
+          payload: {
+            taskId: event.payload.taskId,
+            ordinal: event.payload.ordinal,
+            kind: event.payload.kind,
+            content: event.payload.content,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "task.progress": {
       const linkage = taskLinkageActivityFields(event.payload as Record<string, unknown>);
       // Usage and activity are independent latest-state streams. Keeping them
@@ -2147,7 +2167,12 @@ const make = Effect.gen(function* () {
         case "task.started":
         case "task.progress":
         case "task.updated":
-        case "task.completed": {
+        case "task.completed":
+        // Transcript entries are subagent heartbeats too: they keep an
+        // already-live task fresh without ever creating a new liveness
+        // entry (recordTaskLiveness only re-arms an existing "progress"
+        // entry when status is absent).
+        case "task.transcriptAppended": {
           const payload = event.payload as {
             taskId: string;
             taskType?: string;
@@ -2163,7 +2188,7 @@ const make = Effect.gen(function* () {
             kind:
               event.type === "task.started"
                 ? "started"
-                : event.type === "task.progress"
+                : event.type === "task.progress" || event.type === "task.transcriptAppended"
                   ? "progress"
                   : event.type === "task.updated"
                     ? "updated"

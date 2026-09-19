@@ -639,6 +639,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             pendingApprovalCount: 0,
             pendingUserInputCount: 0,
             hasActionableProposedPlan: 0,
+            dismissedTaskIds: [],
             deletedAt: null,
           });
           return;
@@ -743,6 +744,42 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             ...existingRow.value,
             snoozedUntil: null,
             snoozedAt: null,
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "task.dismissed": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          // Idempotent: re-dismissing an already-dismissed task leaves the row
+          // untouched, matching the decider's duplicate handling.
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            dismissedTaskIds: existingRow.value.dismissedTaskIds.includes(event.payload.taskId)
+              ? existingRow.value.dismissedTaskIds
+              : [...existingRow.value.dismissedTaskIds, event.payload.taskId],
+            updatedAt: event.payload.updatedAt,
+          });
+          return;
+        }
+
+        case "task.restored": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            dismissedTaskIds: existingRow.value.dismissedTaskIds.filter(
+              (taskId) => taskId !== event.payload.taskId,
+            ),
             updatedAt: event.payload.updatedAt,
           });
           return;

@@ -20,14 +20,18 @@ import {
   formatSubagentModelLabel,
   formatSubagentTokenCount,
 } from "@t3tools/client-runtime/state/subagentRuntime";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { Bot, Braces, Check, ChevronDown, ChevronRight, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import type { EnvironmentId, RuntimeTaskId, ThreadId } from "@t3tools/contracts";
+import { Bot, Braces, Check, ChevronDown, ChevronRight, RotateCcw, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { orchestrationEnvironment } from "~/state/orchestration";
+import { threadEnvironment } from "~/state/threads";
+import { useAtomCommand } from "~/state/use-atom-command";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { Button } from "~/components/ui/button";
+
+import { isRestoreVisible } from "./AgentsPanel.dismissal.js";
 
 /**
  * In-flight states all present as Working (one steady state, per the
@@ -35,7 +39,10 @@ import { Button } from "~/components/ui/button";
  * stalled/waiting/queued subagent is still the fleet doing its job, not a
  * user problem). Only settled states differentiate.
  */
-const STATUS_VISUALS: Record<RuntimeSubagent["status"], { dotClass: string; label: string }> = {
+export const STATUS_VISUALS: Record<
+  RuntimeSubagent["status"],
+  { dotClass: string; label: string }
+> = {
   pending: { dotClass: "bg-info", label: "Working" },
   running: { dotClass: "bg-info", label: "Working" },
   waiting: { dotClass: "bg-info", label: "Working" },
@@ -136,8 +143,16 @@ function agentActivityText(agent: RuntimeSubagent): string | null {
   );
 }
 
-/** Flat, non-interactive agent status line. No unfold. */
-function AgentRow({ agent }: { agent: RuntimeSubagent }) {
+/** Flat agent status line. Clicking opens the agent; dismissed rows can be restored. */
+function AgentRow({
+  agent,
+  onOpen,
+  onRestore,
+}: {
+  agent: RuntimeSubagent;
+  onOpen: (agent: RuntimeSubagent) => void;
+  onRestore: (agent: RuntimeSubagent) => void;
+}) {
   const visuals = STATUS_VISUALS[agent.status];
   const statusLabel =
     agent.kind === "subagent_batch" && agent.status === "idle" ? "Idle" : visuals.label;
@@ -155,7 +170,14 @@ function AgentRow({ agent }: { agent: RuntimeSubagent }) {
   ].filter((value): value is string => value !== null);
 
   return (
-    <div className="grid h-[3.875rem] grid-cols-[0.375rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.125rem_1rem] items-center gap-x-2 rounded-md px-1.5 py-1">
+    <button
+      type="button"
+      onClick={() => onOpen(agent)}
+      className={cn(
+        "relative grid h-[3.875rem] w-full grid-cols-[0.375rem_minmax(0,1fr)_auto] grid-rows-[1.25rem_1.125rem_1rem] items-center gap-x-2 rounded-md px-1.5 py-1 text-left hover:bg-accent/40",
+        agent.dismissed && "opacity-60",
+      )}
+    >
       <span className="col-start-1 row-start-1 flex items-center">
         <StatusDot status={agent.status} />
       </span>
@@ -187,7 +209,29 @@ function AgentRow({ agent }: { agent: RuntimeSubagent }) {
         {metadata.join(" · ")}
       </span>
       <span className="sr-only">{statusLabel}</span>
-    </div>
+      {isRestoreVisible(agent) ? (
+        <Button
+          render={<span role="button" tabIndex={0} />}
+          size="icon-micro"
+          variant="ghost-muted"
+          aria-label="Restore agent"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRestore(agent);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              event.stopPropagation();
+              onRestore(agent);
+            }
+          }}
+          className="absolute right-1 top-1"
+        >
+          <RotateCcw aria-hidden className="size-3" />
+        </Button>
+      ) : null}
+    </button>
   );
 }
 
@@ -318,9 +362,13 @@ function WorkflowScriptView({
 function PhaseSection({
   phase,
   defaultOpen = false,
+  onOpen,
+  onRestore,
 }: {
   phase: AgentPanelWorkflowGroup["phases"][number];
   defaultOpen?: boolean;
+  onOpen: (agent: RuntimeSubagent) => void;
+  onRestore: (agent: RuntimeSubagent) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen || phase.state === "running");
   const previousState = useRef(phase.state);
@@ -369,7 +417,11 @@ function PhaseSection({
           </span>
         ) : null}
       </button>
-      {open ? phase.members.map((member) => <AgentRow key={member.id} agent={member} />) : null}
+      {open
+        ? phase.members.map((member) => (
+            <AgentRow key={member.id} agent={member} onOpen={onOpen} onRestore={onRestore} />
+          ))
+        : null}
     </div>
   );
 }
@@ -380,11 +432,15 @@ function ExpandedWorkflowSection({
   environmentId,
   threadId,
   onCollapse,
+  onOpen,
+  onRestore,
 }: {
   group: AgentPanelWorkflowGroup;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
   onCollapse: () => void;
+  onOpen: (agent: RuntimeSubagent) => void;
+  onRestore: (agent: RuntimeSubagent) => void;
 }) {
   const [scriptOpen, setScriptOpen] = useState(false);
   const members = workflowMembers(group);
@@ -439,13 +495,19 @@ function ExpandedWorkflowSection({
         />
       ) : null}
       {group.phases.map((phase) => (
-        <PhaseSection key={phase.index} phase={phase} defaultOpen={!workflowIsLive(group)} />
+        <PhaseSection
+          key={phase.index}
+          phase={phase}
+          defaultOpen={!workflowIsLive(group)}
+          onOpen={onOpen}
+          onRestore={onRestore}
+        />
       ))}
       {group.unphasedMembers.map((member) => (
-        <AgentRow key={member.id} agent={member} />
+        <AgentRow key={member.id} agent={member} onOpen={onOpen} onRestore={onRestore} />
       ))}
       {group.phases.length === 0 && group.unphasedMembers.length === 0 ? (
-        <AgentRow agent={group.workflow} />
+        <AgentRow agent={group.workflow} onOpen={onOpen} onRestore={onRestore} />
       ) : null}
     </section>
   );
@@ -503,10 +565,14 @@ function WorkflowSection({
   group,
   environmentId,
   threadId,
+  onOpen,
+  onRestore,
 }: {
   group: AgentPanelWorkflowGroup;
   environmentId: EnvironmentId | null;
   threadId: ThreadId | null;
+  onOpen: (agent: RuntimeSubagent) => void;
+  onRestore: (agent: RuntimeSubagent) => void;
 }) {
   const [open, setOpen] = useState(() => workflowIsLive(group));
   return open ? (
@@ -515,21 +581,47 @@ function WorkflowSection({
       environmentId={environmentId}
       threadId={threadId}
       onCollapse={() => setOpen(false)}
+      onOpen={onOpen}
+      onRestore={onRestore}
     />
   ) : (
     <CollapsedWorkflowSection group={group} onExpand={() => setOpen(true)} />
   );
 }
 
+// Stable default for callers that render the panel without navigation (tests,
+// previews), so AgentRow never sees a fresh function identity per render.
+// ChatView passes the real handler that opens the subagent detail route.
+function noopOpenAgent(): void {}
+
 export function AgentsPanel({
   model,
   environmentId = null,
   threadId = null,
+  onOpen = noopOpenAgent,
 }: {
   model: AgentPanelModel;
   environmentId?: EnvironmentId | null;
   threadId?: ThreadId | null;
+  /** Opens the subagent's own transcript view. */
+  onOpen?: (agent: RuntimeSubagent) => void;
 }) {
+  const restoreTaskMutation = useAtomCommand(threadEnvironment.restoreTask, {
+    reportFailure: false,
+  });
+  const handleRestore = useCallback(
+    (agent: RuntimeSubagent) => {
+      if (!environmentId || !threadId) {
+        return;
+      }
+      void restoreTaskMutation({
+        environmentId,
+        input: { threadId, taskId: agent.id as RuntimeTaskId },
+      });
+    },
+    [environmentId, threadId, restoreTaskMutation],
+  );
+
   if (!model.hasAgents) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
@@ -553,6 +645,8 @@ export function AgentsPanel({
               group={group}
               environmentId={environmentId}
               threadId={threadId}
+              onOpen={onOpen}
+              onRestore={handleRestore}
             />
           ))}
           {model.directAgents.length > 0 ? (
@@ -561,7 +655,7 @@ export function AgentsPanel({
                 Direct spawns
               </div>
               {model.directAgents.map((agent) => (
-                <AgentRow key={agent.id} agent={agent} />
+                <AgentRow key={agent.id} agent={agent} onOpen={onOpen} onRestore={handleRestore} />
               ))}
             </section>
           ) : null}

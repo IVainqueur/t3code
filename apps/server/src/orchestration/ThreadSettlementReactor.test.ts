@@ -94,6 +94,7 @@ function makeThread(
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    dismissedTaskIds: [],
     ...overrides,
   };
 }

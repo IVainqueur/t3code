@@ -8,11 +8,20 @@ import {
   type EnvironmentThreadStatus,
   mergeEnvironmentThread,
 } from "@t3tools/client-runtime/state/threads";
-import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
+import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
+import { foldSubagentActivities } from "@t3tools/client-runtime/state/subagentRuntime";
+import type {
+  OrchestrationThreadActivity,
+  RuntimeTaskId,
+  ScopedProjectRef,
+  ScopedThreadRef,
+  ServerConfig,
+} from "@t3tools/contracts";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { useMemo } from "react";
 import { appAtomRegistry } from "../rpc/atomRegistry";
+import { derivePhase } from "../session-logic";
 import { environmentProjects } from "./projects";
 import { environmentServerConfigsAtom } from "./server";
 import {
@@ -144,6 +153,39 @@ export function useThread(
     }),
   );
   return useMemo(() => mergeEnvironmentThread(detail, shell), [detail, shell]);
+}
+
+const EMPTY_ACTIVITIES: ReadonlyArray<OrchestrationThreadActivity> = Object.freeze([]);
+
+/**
+ * One subagent out of the thread's live roster.
+ *
+ * Deliberately the same derivation the Agents panel uses (the fold over the
+ * thread's activities, memoized by activity-list identity) rather than a
+ * second subscription: the transcript and status the detail view renders are
+ * already kept current by the thread detail atom, so a running agent's
+ * blocks append while the view is open with no fetch of its own.
+ */
+export function useThreadSubagent(
+  ref: ScopedThreadRef | null,
+  taskId: RuntimeTaskId | null,
+): RuntimeSubagent | null {
+  const thread = useThread(ref);
+  const activities = thread?.activities ?? EMPTY_ACTIVITIES;
+  const dismissedTaskIds = thread?.dismissedTaskIds;
+  // Matches ChatView: a dead provider session cannot still be running
+  // agents, so panel and detail view never disagree about status.
+  const sessionLive = derivePhase(thread?.session ?? null) !== "disconnected";
+  return useMemo(() => {
+    if (taskId === null) {
+      return null;
+    }
+    const roster = foldSubagentActivities(activities, {
+      sessionLive,
+      ...(dismissedTaskIds ? { dismissedTaskIds } : {}),
+    });
+    return roster.find((agent) => agent.id === taskId) ?? null;
+  }, [activities, dismissedTaskIds, sessionLive, taskId]);
 }
 
 export function readProject(ref: ScopedProjectRef): EnvironmentProject | null {

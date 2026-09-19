@@ -98,6 +98,7 @@ const THREAD = {
     activities: [],
     checkpoints: [],
     session: null,
+    dismissedTaskIds: [],
   },
   page: { beforeCursor: null, hasMore: false, snapshotSequence: 2 },
 } satisfies OrchestrationThreadDetailSnapshot;

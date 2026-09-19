@@ -164,6 +164,7 @@ const makeProjectedThread = (input: {
     activities: [],
     checkpoints: [],
     session: null,
+    dismissedTaskIds: [],
   };
 };
 

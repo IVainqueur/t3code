@@ -891,3 +891,81 @@ describe("nested agents vs subagent shells", () => {
     expect(agents.map((agent) => agent.id)).toEqual(["nested-1"]);
   });
 });
+
+describe("transcript and dismissed", () => {
+  it("orders same-timestamp transcript entries by ordinal", () => {
+    const sameInstant = "2026-08-01T10:00:00.000Z";
+    const agents = foldSubagentActivities([
+      activity("task.started", { taskId: "task-1", taskType: "local_agent" }),
+      activity(
+        "task.transcriptAppended",
+        { taskId: "task-1", ordinal: 1, kind: "text", content: { text: "second" } },
+        sameInstant,
+      ),
+      activity(
+        "task.transcriptAppended",
+        { taskId: "task-1", ordinal: 0, kind: "text", content: { text: "first" } },
+        sameInstant,
+      ),
+    ]);
+
+    const agent = agents.find((a) => a.id === "task-1");
+    expect(agent?.transcript.map((entry) => entry.content)).toEqual([
+      { text: "first" },
+      { text: "second" },
+    ]);
+    expect(agent?.dismissed).toBe(false);
+  });
+
+  it("keeps a resumed session's restarted ordinals after the persisted entries", () => {
+    // The adapter's ordinal counter is per-session and in-memory, so a resume
+    // restarts at 0 for a still-running task. Timestamp must win.
+    const agents = foldSubagentActivities([
+      activity("task.started", { taskId: "task-1", taskType: "local_agent" }),
+      activity(
+        "task.transcriptAppended",
+        { taskId: "task-1", ordinal: 0, kind: "text", content: { text: "before resume 0" } },
+        "2026-08-01T10:00:00.000Z",
+      ),
+      activity(
+        "task.transcriptAppended",
+        { taskId: "task-1", ordinal: 1, kind: "text", content: { text: "before resume 1" } },
+        "2026-08-01T10:00:01.000Z",
+      ),
+      activity(
+        "task.transcriptAppended",
+        { taskId: "task-1", ordinal: 0, kind: "text", content: { text: "after resume" } },
+        "2026-08-01T11:00:00.000Z",
+      ),
+    ]);
+
+    expect(agents.find((a) => a.id === "task-1")?.transcript.map((entry) => entry.content)).toEqual(
+      [{ text: "before resume 0" }, { text: "before resume 1" }, { text: "after resume" }],
+    );
+  });
+
+  it("keeps a transcript entry whose task.started row was evicted", () => {
+    const agents = foldSubagentActivities([
+      activity("task.transcriptAppended", {
+        taskId: "orphan-1",
+        ordinal: 0,
+        kind: "text",
+        content: { text: "narration with no start row" },
+      }),
+    ]);
+
+    const agent = agents.find((a) => a.id === "orphan-1");
+    expect(agent?.transcript.map((entry) => entry.content)).toEqual([
+      { text: "narration with no start row" },
+    ]);
+  });
+
+  it("marks a subagent dismissed when its taskId is in dismissedTaskIds", () => {
+    const agents = foldSubagentActivities(
+      [activity("task.started", { taskId: "task-1", taskType: "local_agent" })],
+      { dismissedTaskIds: ["task-1"] },
+    );
+
+    expect(agents.find((a) => a.id === "task-1")?.dismissed).toBe(true);
+  });
+});

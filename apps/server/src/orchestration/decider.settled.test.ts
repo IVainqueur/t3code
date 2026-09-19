@@ -63,6 +63,7 @@ function makeReadModel(
         activities,
         checkpoints: [],
         session,
+        dismissedTaskIds: [],
       },
     ],
     updatedAt: NOW,

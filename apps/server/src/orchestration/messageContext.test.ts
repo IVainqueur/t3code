@@ -62,6 +62,7 @@ function makeReadModel(): OrchestrationReadModel {
         activities: [],
         checkpoints: [],
         session: null,
+        dismissedTaskIds: [],
       },
     ],
     updatedAt: NOW,

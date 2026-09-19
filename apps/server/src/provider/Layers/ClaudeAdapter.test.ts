@@ -1283,6 +1283,156 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect(
+    "emits task.transcriptAppended for subagent narration and tool calls instead of dropping them",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+
+        const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 10).pipe(
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: ProviderDriverKind.make("claudeAgent"),
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("claudeAgent"),
+            model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+          },
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "spawn an agent",
+          attachments: [],
+        });
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-narrate",
+          description: "Agent N",
+          task_type: "local_agent",
+          tool_use_id: "tool-parent-1",
+          uuid: "task-narrate-uuid",
+          session_id: "sdk-session-narrate",
+        } as unknown as SDKMessage);
+
+        // Real subagents (confirmed via live capture against an actual
+        // Claude Code session — direct-spawn `local_agent` tasks never
+        // surface their content through `stream_event`/`content_block_*`
+        // frames at all) deliver their content as complete `assistant`/`user`
+        // message snapshots tagged with `parent_tool_use_id`, one message per
+        // completed content block (per the SDK's own doc comment on
+        // `SDKAssistantMessage`). No stream_event, no per-delta buffering.
+        harness.query.emit({
+          type: "assistant",
+          session_id: "sdk-session-narrate",
+          uuid: "assistant-narrate-text",
+          parent_tool_use_id: "tool-parent-1",
+          message: {
+            role: "assistant",
+            model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            content: [{ type: "text", text: "Investigating the failing test..." }],
+            stop_reason: null,
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "assistant",
+          session_id: "sdk-session-narrate",
+          uuid: "assistant-narrate-tool-use",
+          parent_tool_use_id: "tool-parent-1",
+          message: {
+            role: "assistant",
+            model: SYNTHETIC_CLAUDE_STANDARD_MODEL,
+            content: [
+              { type: "tool_use", id: "tool-child-1", name: "Grep", input: { pattern: "foo" } },
+            ],
+            stop_reason: null,
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "user",
+          session_id: "sdk-session-narrate",
+          uuid: "user-narrate-tool-result",
+          parent_tool_use_id: "tool-parent-1",
+          message: {
+            role: "user",
+            content: [
+              { type: "tool_result", tool_use_id: "tool-child-1", content: "src/example.ts:1:foo" },
+            ],
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          errors: [],
+          session_id: "sdk-session-narrate",
+          uuid: "result-narrate",
+        } as unknown as SDKMessage);
+
+        const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+        const transcriptEvents = runtimeEvents.filter(
+          (event) => event.type === "task.transcriptAppended",
+        );
+
+        assert.equal(transcriptEvents.length, 3);
+
+        const narrationEvent = transcriptEvents[0];
+        assert.equal(narrationEvent?.type, "task.transcriptAppended");
+        if (narrationEvent?.type === "task.transcriptAppended") {
+          assert.equal(narrationEvent.payload.taskId, "task-narrate");
+          assert.equal(narrationEvent.payload.kind, "text");
+          assert.equal(narrationEvent.payload.ordinal, 0);
+          assert.deepEqual(narrationEvent.payload.content, {
+            text: "Investigating the failing test...",
+          });
+        }
+
+        const toolUseEvent = transcriptEvents[1];
+        assert.equal(toolUseEvent?.type, "task.transcriptAppended");
+        if (toolUseEvent?.type === "task.transcriptAppended") {
+          assert.equal(toolUseEvent.payload.taskId, "task-narrate");
+          assert.equal(toolUseEvent.payload.kind, "tool_use");
+          assert.equal(toolUseEvent.payload.ordinal, 1);
+          assert.deepEqual(toolUseEvent.payload.content, {
+            toolName: "Grep",
+            input: { pattern: "foo" },
+          });
+        }
+
+        const toolResultEvent = transcriptEvents[2];
+        assert.equal(toolResultEvent?.type, "task.transcriptAppended");
+        if (toolResultEvent?.type === "task.transcriptAppended") {
+          assert.equal(toolResultEvent.payload.taskId, "task-narrate");
+          assert.equal(toolResultEvent.payload.kind, "tool_result");
+          assert.equal(toolResultEvent.payload.ordinal, 2);
+        }
+
+        // The subagent's narration must not also leak into the parent's own
+        // transcript as a content.delta.
+        assert.equal(
+          runtimeEvents.some(
+            (event) =>
+              event.type === "content.delta" && event.payload.delta.includes("Investigating"),
+          ),
+          false,
+        );
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
   it.effect("places overage-included rate-limit events on the bucket the probe named", () => {
     const scopedLimitNames = Ref.makeUnsafe<ClaudeScopedLimitNames>({ overageIncluded: undefined });
     const harness = makeHarness({ scopedLimitNames });

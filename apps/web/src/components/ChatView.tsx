@@ -1,6 +1,6 @@
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
-import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
+import type { RuntimeTaskId, UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import {
   collectProviderUsageLimits,
   hasProviderUsageLimits,
@@ -215,6 +215,7 @@ import { useDeviceState } from "~/state/device";
 import { DeviceSetup } from "./device/DeviceSetup";
 import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
+import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
@@ -2928,9 +2929,31 @@ export default function ChatView(props: ChatViewProps) {
   const agentPanelModel = useMemo(
     () =>
       deriveAgentPanelModel({
-        agents: foldSubagentActivities(threadActivities, { sessionLive: agentSessionLive }),
+        agents: foldSubagentActivities(threadActivities, {
+          sessionLive: agentSessionLive,
+          ...(activeThread?.dismissedTaskIds
+            ? { dismissedTaskIds: activeThread.dismissedTaskIds }
+            : {}),
+        }),
       }),
-    [agentSessionLive, threadActivities],
+    [activeThread?.dismissedTaskIds, agentSessionLive, threadActivities],
+  );
+  // Agents panel rows open the subagent's own transcript view.
+  const handleOpenSubagent = useCallback(
+    (agent: RuntimeSubagent) => {
+      if (activeThreadRef === null) {
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId/agents/$taskId",
+        params: {
+          environmentId: activeThreadRef.environmentId,
+          threadId: activeThreadRef.threadId,
+          taskId: agent.id as RuntimeTaskId,
+        },
+      });
+    },
+    [activeThreadRef, navigate],
   );
   const { approvals: pendingApprovals, userInputs: pendingUserInputs } = useMemo(
     () => derivePendingRequests(threadActivities),
@@ -9275,6 +9298,7 @@ export default function ChatView(props: ChatViewProps) {
         model={agentPanelModel}
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
+        onOpen={handleOpenSubagent}
       />
     ) : renderedRightPanelSurface?.kind === "device" ? (
       <Suspense fallback={null}>

@@ -2163,6 +2163,60 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       return [unsettledEvent, activityAppendedEvent];
     }
 
+    case "task.dismiss": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      // Re-dismissing an already-dismissed task is a duplicate (double-click,
+      // raced clients): re-emit with the original timestamp so the
+      // projection is a no-op, matching thread.snooze/thread.unsnooze.
+      const alreadyDismissed = thread.dismissedTaskIds.includes(command.taskId);
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "task.dismissed",
+        payload: {
+          threadId: command.threadId,
+          taskId: command.taskId,
+          dismissedAt: occurredAt,
+          updatedAt: alreadyDismissed ? thread.updatedAt : occurredAt,
+        },
+      };
+    }
+
+    case "task.restore": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const occurredAt = yield* nowIso;
+      // Restoring a task that is not dismissed is a duplicate: re-emit with
+      // the original updatedAt so the projection is a no-op.
+      const alreadyRestored = !thread.dismissedTaskIds.includes(command.taskId);
+      return {
+        ...(yield* withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        })),
+        type: "task.restored",
+        payload: {
+          threadId: command.threadId,
+          taskId: command.taskId,
+          updatedAt: alreadyRestored ? thread.updatedAt : occurredAt,
+        },
+      };
+    }
+
     default: {
       command satisfies never;
       const fallback = command as never as { type: string };

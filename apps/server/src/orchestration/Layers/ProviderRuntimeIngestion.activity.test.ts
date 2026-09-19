@@ -82,6 +82,55 @@ describe("runtimeEventToActivities task progress", () => {
     expect(usagePayload).not.toHaveProperty("status");
   });
 });
+describe("runtimeEventToActivities task transcript", () => {
+  it("folds task.transcriptAppended into an activity row", () => {
+    const event = {
+      ...base,
+      type: "task.transcriptAppended",
+      eventId: EventId.make("evt-transcript1"),
+      payload: {
+        taskId: RuntimeTaskId.make("task-test1"),
+        ordinal: 3,
+        kind: "text",
+        content: { text: "hello" },
+        timestamp: "2026-09-16T00:00:00.000Z",
+      },
+    } satisfies ProviderRuntimeEvent;
+
+    const activities = runtimeEventToActivities(event);
+
+    expect(activities).toHaveLength(1);
+    expect(activities[0]?.kind).toBe("task.transcriptAppended");
+    expect(activities[0]?.id).toBe("evt-transcript1");
+    expect(activities[0]?.payload).toMatchObject({
+      taskId: "task-test1",
+      ordinal: 3,
+      kind: "text",
+    });
+  });
+
+  it("produces the same activity row when replayed", () => {
+    const event = {
+      ...base,
+      type: "task.transcriptAppended",
+      eventId: EventId.make("evt-transcript2"),
+      payload: {
+        taskId: RuntimeTaskId.make("task-test2"),
+        ordinal: 7,
+        kind: "tool_use",
+        content: { toolName: "Read" },
+        timestamp: "2026-09-16T00:00:00.000Z",
+      },
+    } satisfies ProviderRuntimeEvent;
+
+    const first = runtimeEventToActivities(event);
+    const replayed = runtimeEventToActivities(event);
+
+    expect(replayed).toEqual(first);
+    expect(replayed.map((activity) => activity.id)).toEqual(first.map((activity) => activity.id));
+  });
+});
+
 describe("runtimeEventToActivities tool streaming persistence", () => {
   const accumulatedStdout = [
     "first line of output",

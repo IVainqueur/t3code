@@ -394,6 +394,7 @@ describe("streaming row projection", () => {
       interactionMode: "default",
       branch: null,
       pullRequests: [],
+      dismissedTaskIds: [],
       worktreePath: null,
       latestTurn: {
         ...initial.input.latestTurn,

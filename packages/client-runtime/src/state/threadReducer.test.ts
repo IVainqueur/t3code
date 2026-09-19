@@ -8,6 +8,7 @@ import {
   MessageId,
   ProjectId,
   ProviderInstanceId,
+  RuntimeTaskId,
   ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -45,6 +46,7 @@ const baseThread: OrchestrationThread = {
   activities: [],
   checkpoints: [],
   session: null,
+  dismissedTaskIds: [],
 };
 
 describe("applyThreadDetailEvent", () => {
@@ -1666,6 +1668,58 @@ describe("applyThreadDetailEvent", () => {
         },
       } as any);
       expect(result.kind).toBe("unchanged");
+    });
+  });
+
+  describe("task dismiss/restore", () => {
+    const taskId = RuntimeTaskId.make("task-1");
+    const dismissEvent = {
+      ...baseEventFields,
+      sequence: 1,
+      occurredAt: "2026-04-01T01:00:00.000Z",
+      aggregateKind: "thread",
+      aggregateId: ThreadId.make("thread-1"),
+      type: "task.dismissed",
+      payload: {
+        threadId: ThreadId.make("thread-1"),
+        taskId,
+        dismissedAt: "2026-04-01T01:00:00.000Z",
+        updatedAt: "2026-04-01T01:00:00.000Z",
+      },
+    } as const;
+
+    it("adds the task id and stays idempotent across duplicates", () => {
+      const dismissed = applyThreadDetailEvent(baseThread, dismissEvent);
+      expect(dismissed.kind).toBe("updated");
+      if (dismissed.kind !== "updated") return;
+      expect(dismissed.thread.dismissedTaskIds).toEqual([taskId]);
+
+      const again = applyThreadDetailEvent(dismissed.thread, dismissEvent);
+      expect(again.kind).toBe("updated");
+      if (again.kind !== "updated") return;
+      expect(again.thread.dismissedTaskIds).toEqual([taskId]);
+    });
+
+    it("removes the task id on task.restored", () => {
+      const dismissed = applyThreadDetailEvent(baseThread, dismissEvent);
+      if (dismissed.kind !== "updated") throw new Error("expected updated");
+
+      const restored = applyThreadDetailEvent(dismissed.thread, {
+        ...baseEventFields,
+        sequence: 2,
+        occurredAt: "2026-04-01T02:00:00.000Z",
+        aggregateKind: "thread",
+        aggregateId: ThreadId.make("thread-1"),
+        type: "task.restored",
+        payload: {
+          threadId: ThreadId.make("thread-1"),
+          taskId,
+          updatedAt: "2026-04-01T02:00:00.000Z",
+        },
+      });
+      expect(restored.kind).toBe("updated");
+      if (restored.kind !== "updated") return;
+      expect(restored.thread.dismissedTaskIds).toEqual([]);
     });
   });
 });

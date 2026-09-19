@@ -44,6 +44,13 @@ export interface SubagentActivityEntry {
   readonly summary: string;
 }
 
+export interface SubagentTranscriptEntry {
+  readonly ordinal: number;
+  readonly kind: "text" | "thinking" | "tool_use" | "tool_result";
+  readonly content: unknown;
+  readonly at: string;
+}
+
 export interface SubagentWorkflowPhase {
   readonly index: number;
   readonly title: string;
@@ -85,6 +92,9 @@ export interface RuntimeSubagent {
   readonly startedAt: string | null;
   readonly completedAt: string | null;
   readonly updatedAt: string;
+  /** True when the taskId is in the thread's dismissedTaskIds; orthogonal to run status. */
+  readonly dismissed: boolean;
+  readonly transcript: ReadonlyArray<SubagentTranscriptEntry>;
 }
 
 const TERMINAL_STATUSES: ReadonlySet<RuntimeSubagentStatus> = new Set([
@@ -253,6 +263,7 @@ interface MutableAgent {
   startedAt: string | null;
   completedAt: string | null;
   updatedAt: string;
+  transcript: ReadonlyArray<SubagentTranscriptEntry>;
 }
 
 function kindFromPayload(
@@ -310,6 +321,7 @@ function getOrCreate(
     startedAt: null,
     completedAt: null,
     updatedAt: at,
+    transcript: [],
   };
   agents.set(id, created);
   return created;
@@ -462,7 +474,10 @@ function asRuntimeStatus(value: unknown): RuntimeSubagentStatus | undefined {
  */
 export function foldSubagentActivities(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
-  options?: { readonly sessionLive?: boolean },
+  options?: {
+    readonly sessionLive?: boolean;
+    readonly dismissedTaskIds?: ReadonlyArray<string>;
+  },
 ): ReadonlyArray<RuntimeSubagent> {
   const agents = new Map<string, MutableAgent>();
 
@@ -613,6 +628,28 @@ export function foldSubagentActivities(
         agent.updatedAt = at;
         break;
       }
+      case "task.transcriptAppended": {
+        const taskId = asString(payload.taskId);
+        if (!taskId) break;
+        // A transcript entry can outlive its task.started row (evicted from the
+        // activity window). Synthesize the agent rather than dropping the
+        // transcript, the same way completion does.
+        const agent = getOrCreate(agents, taskId, payload, at);
+        const ordinal = asCount(payload.ordinal);
+        const entryKind = asString(payload.kind);
+        if (ordinal === undefined || !entryKind) break;
+        agent.transcript = [
+          ...agent.transcript,
+          {
+            ordinal,
+            kind: entryKind as SubagentTranscriptEntry["kind"],
+            content: payload.content,
+            at,
+          },
+        ];
+        agent.updatedAt = at;
+        break;
+      }
       case "tool.progress": {
         // Agent-owned heartbeat: "what it's doing right now".
         const taskId = asString(payload.taskId);
@@ -677,7 +714,18 @@ export function foldSubagentActivities(
       .slice(0, ROSTER_LIMIT);
   }
 
-  return roster.map((agent) => ({ ...agent }));
+  const dismissedTaskIds = new Set(options?.dismissedTaskIds ?? []);
+  return roster.map((agent) => ({
+    ...agent,
+    // Timestamp first, ordinal as tiebreaker: the adapter's ordinal counter is
+    // per-session and in-memory, so a resumed session restarts at 0 for a task
+    // whose earlier entries are already persisted. Sorting on ordinal alone
+    // would splice the resumed entries into the middle of the old sequence.
+    transcript: agent.transcript
+      .slice()
+      .sort((a, b) => a.at.localeCompare(b.at) || a.ordinal - b.ordinal),
+    dismissed: dismissedTaskIds.has(agent.id),
+  }));
 }
 
 export interface AgentPanelWorkflowGroup {

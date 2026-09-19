@@ -342,6 +342,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
       settledOverride: null,
       settledAt: null,
       session: null,
+      dismissedTaskIds: [],
       latestUserMessageAt: null,
       hasPendingApprovals: false,
       hasPendingUserInput: false,
@@ -505,6 +506,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           hasPendingApprovals: false,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
+          dismissedTaskIds: [],
         } satisfies OrchestrationThreadShell;
 
         const orchestrationEngine = {
@@ -697,6 +699,7 @@ describe.sequential("signRelayAgentActivityPublishProof", () => {
           hasPendingApprovals: false,
           hasPendingUserInput: false,
           hasActionableProposedPlan: false,
+          dismissedTaskIds: [],
         } satisfies OrchestrationThreadShell;
 
         const descriptor = {

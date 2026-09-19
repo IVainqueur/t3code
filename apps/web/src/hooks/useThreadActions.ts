@@ -6,7 +6,12 @@ import {
 } from "@t3tools/client-runtime/environment";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { canSnooze, threadWokeAt } from "@t3tools/client-runtime/state/thread-settled";
-import { EnvironmentId, type ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  type RuntimeTaskId,
+  type ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -205,6 +210,9 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const unsnoozeThreadMutation = useAtomCommand(threadEnvironment.unsnooze, {
+    reportFailure: false,
+  });
+  const dismissTaskMutation = useAtomCommand(threadEnvironment.dismissTask, {
     reportFailure: false,
   });
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession);
@@ -722,6 +730,16 @@ export function useThreadActions() {
     [unsnoozeThreadMutation],
   );
 
+  const dismissTask = useCallback(
+    async (target: ScopedThreadRef, taskId: RuntimeTaskId) => {
+      return dismissTaskMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, taskId },
+      });
+    },
+    [dismissTaskMutation],
+  );
+
   const confirmAndDeleteThread = useCallback(
     async (target: ScopedThreadRef) => {
       const localApi = readLocalApi();
@@ -766,12 +784,14 @@ export function useThreadActions() {
       confirmAndUnpinThread,
       reorderPinnedThread,
       reorderActiveThread,
+      dismissTask,
     }),
     [
       archiveThread,
       confirmAndDeleteThread,
       confirmAndUnpinThread,
       deleteThread,
+      dismissTask,
       pinThread,
       reorderPinnedThread,
       reorderActiveThread,

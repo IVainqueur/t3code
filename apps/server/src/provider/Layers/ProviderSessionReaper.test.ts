@@ -116,6 +116,7 @@ function makeReadModel(
       proposedPlans: [],
       checkpoints: [],
       deletedAt: null,
+      dismissedTaskIds: [],
     })),
   };
 }

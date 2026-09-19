@@ -27,6 +27,7 @@ import {
   resolveThreadReminder,
 } from "@t3tools/client-runtime/state/thread-reminder";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRuntime";
 import {
   parseScopedThreadKey,
   scopeProjectRef,
@@ -37,6 +38,7 @@ import {
   resolveEnvironmentMachineKind,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
+  type RuntimeTaskId,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -46,6 +48,7 @@ import {
   AlarmClockOffIcon,
   CheckIcon,
   ChevronDownIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -231,6 +234,7 @@ import {
   remindAtFromMinutes,
   resolveReminderPresets,
 } from "./Sidebar.reminder";
+import { visibleSubagentsForSidebar } from "./Sidebar.subagents";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
@@ -325,6 +329,10 @@ function WorkingDuration(props: { startedAt: string | null }) {
 }
 
 const EMPTY_PROVIDER_ENTRIES: ReadonlyMap<string, ProviderInstanceEntry> = new Map();
+// Placeholder until a later task wires a real per-thread subagent roster
+// into the sidebar; a stable empty array keeps every row's props referentially
+// stable so this alone never forces a re-render.
+const EMPTY_SIDEBAR_SUBAGENTS: ReadonlyArray<RuntimeSubagent> = [];
 // Collapsed shelves share one empty list so a route change alone does not
 // give the sidebar list a new identity.
 const EMPTY_THREADS: readonly EnvironmentThreadShell[] = [];
@@ -1118,6 +1126,20 @@ const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   ),
 };
 
+// Compact status word for a subagent row nested under its thread. Mirrors
+// AgentsPanel's Working/Idle/settled grouping without pulling in its dot
+// visuals — the sidebar row is a single line, not a fleet card.
+const SUBAGENT_STATUS_LABEL: Record<RuntimeSubagent["status"], string> = {
+  pending: "Working",
+  running: "Working",
+  waiting: "Working",
+  idle: "Idle",
+  completed: "Completed",
+  failed: "Failed",
+  cancelled: "Stopped",
+  interrupted: "Stopped",
+};
+
 // Shared by every row variant: the drag itself carries the thread key, so
 // nothing here is per-row and one module-level host keeps the row handlers
 // referentially stable.
@@ -1202,6 +1224,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   /** Owned by the parent so the row's context menu can open it. */
   reminderMenuOpen: boolean;
   onReminderMenuOpenChange: (threadRef: ScopedThreadRef, open: boolean) => void;
+  /** Live subagent roster for this thread; dismissed entries are filtered before render. */
+  subagents: ReadonlyArray<RuntimeSubagent>;
+  onDismissSubagent: (taskId: RuntimeTaskId) => void;
+  /** Opens the subagent's transcript view for the thread that owns the task. */
+  onOpenSubagent: (taskId: RuntimeTaskId) => void;
   /**
    * External files dropped onto this row. The row highlights while the drag
    * is over it; the callback opens the thread and hands the files to its
@@ -1228,8 +1255,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     onUnsettle,
     onUnsnooze,
     onUnpin,
+    onDismissSubagent,
+    onOpenSubagent,
     openPullRequestsInRightPanel,
     renamingTitle,
+    subagents,
     thread,
     variant,
     variantAction,
@@ -1590,6 +1620,31 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       onSnooze(threadRef, preset);
     },
     [onSnooze, threadRef],
+  );
+  // Dismissed subagents never take a seat in the sidebar list; the roster
+  // itself still carries them (Task 9's Agents panel restores from there).
+  const visibleSubagents = useMemo(() => visibleSubagentsForSidebar(subagents), [subagents]);
+  const [subagentsOpen, setSubagentsOpen] = useState(false);
+  const handleToggleSubagents = useCallback((event: ReactMouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSubagentsOpen((open) => !open);
+  }, []);
+  const handleOpenSubagentClick = useCallback(
+    (event: ReactMouseEvent, taskId: RuntimeTaskId) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onOpenSubagent(taskId);
+    },
+    [onOpenSubagent],
+  );
+  const handleDismissSubagentClick = useCallback(
+    (event: ReactMouseEvent, taskId: RuntimeTaskId) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onDismissSubagent(taskId);
+    },
+    [onDismissSubagent],
   );
   // While the snooze popover is open the pointer leaves the row, which
   // would fade the hover actions out from under the open menu. Pin them and
@@ -2287,6 +2342,66 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         </TooltipTrigger>
         {detailsTooltip}
       </Tooltip>
+      {visibleSubagents.length > 0 ? (
+        <div className="mt-0.5 pl-5">
+          <button
+            type="button"
+            onClick={handleToggleSubagents}
+            className="flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left text-xs text-sidebar-muted-foreground hover:bg-sidebar-accent/40"
+            aria-expanded={subagentsOpen}
+          >
+            {subagentsOpen ? (
+              <ChevronDownIcon aria-hidden className="size-3 shrink-0" />
+            ) : (
+              <ChevronRightIcon aria-hidden className="size-3 shrink-0" />
+            )}
+            <span className="truncate">
+              {visibleSubagents.length} agent{visibleSubagents.length === 1 ? "" : "s"}
+            </span>
+          </button>
+          {subagentsOpen ? (
+            <ul role="list" className="flex flex-col gap-px">
+              {visibleSubagents.map((agent) => (
+                <li key={agent.id} className="list-none">
+                  <button
+                    type="button"
+                    onClick={(event) => handleOpenSubagentClick(event, agent.id as RuntimeTaskId)}
+                    className="group/subagent flex w-full items-center gap-1.5 rounded-md px-1 py-1 pl-4 text-left text-xs hover:bg-sidebar-accent/40"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{agent.title}</span>
+                    {agent.role ? (
+                      <span className="shrink-0 truncate text-sidebar-muted-foreground/70">
+                        {agent.role}
+                      </span>
+                    ) : null}
+                    <span className="shrink-0 text-sidebar-muted-foreground/70">
+                      {SUBAGENT_STATUS_LABEL[agent.status]}
+                    </span>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Dismiss agent"
+                      onClick={(event) =>
+                        handleDismissSubagentClick(event, agent.id as RuntimeTaskId)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onDismissSubagent(agent.id as RuntimeTaskId);
+                        }
+                      }}
+                      className="shrink-0 rounded-sm p-0.5 opacity-0 hover:bg-sidebar-accent group-hover/subagent:opacity-100"
+                    >
+                      <XIcon aria-hidden className="size-3" />
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
     </li>
   );
 });
@@ -2502,7 +2617,39 @@ export default function Sidebar() {
     reorderActiveThread,
     archiveThread,
     deleteThread,
+    dismissTask,
   } = useThreadActions();
+  // SidebarThreadRow is memoized (shallow prop equality) and every row needs
+  // this callback, so it must be one stable reference for the whole list —
+  // a fresh closure per row per render (even one bound only for rows with
+  // subagents) would defeat memo for every row, not just those rows. The
+  // row's own prop signature is bare `(taskId) => void`, so the thread a
+  // given taskId belongs to is resolved through this ref-backed map instead
+  // of being captured in the closure.
+  // Rows update their own entries as they render (see renderThreadRowInner).
+  const taskThreadRefsRef = useRef<Map<RuntimeTaskId, ScopedThreadRef>>(new Map());
+  const handleDismissSubagent = useCallback(
+    (taskId: RuntimeTaskId) => {
+      const threadRef = taskThreadRefsRef.current.get(taskId);
+      if (!threadRef) return;
+      void dismissTask(threadRef, taskId);
+    },
+    [dismissTask],
+  );
+  // Same ref-backed lookup as dismissal, for the same memo reason: the row's
+  // prop is a bare `(taskId) => void`, so the owning thread comes from the
+  // map rather than a per-row closure.
+  const handleOpenSubagent = useCallback(
+    (taskId: RuntimeTaskId) => {
+      const threadRef = taskThreadRefsRef.current.get(taskId);
+      if (!threadRef) return;
+      void router.navigate({
+        to: "/$environmentId/$threadId/agents/$taskId",
+        params: { ...buildThreadRouteParams(threadRef), taskId },
+      });
+    },
+    [router],
+  );
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
@@ -5231,9 +5378,16 @@ export default function Sidebar() {
                         section: SidebarSection,
                         sortable?: SortableThreadRowBag,
                       ) => {
-                        const threadKey = scopedThreadKey(
-                          scopeThreadRef(thread.environmentId, thread.id),
-                        );
+                        const threadRef = scopeThreadRef(thread.environmentId, thread.id);
+                        const threadKey = scopedThreadKey(threadRef);
+                        // Placeholder until a later task wires a real per-thread
+                        // roster (see EMPTY_SIDEBAR_SUBAGENTS); recorded here so
+                        // handleDismissSubagent's ref-backed lookup is correct
+                        // the moment real subagents start flowing through.
+                        const rowSubagents = EMPTY_SIDEBAR_SUBAGENTS;
+                        for (const agent of rowSubagents) {
+                          taskThreadRefsRef.current.set(agent.id as RuntimeTaskId, threadRef);
+                        }
                         // Settled and snoozed are the ONLY things that collapse a
                         // row: every other thread is a full card. Density comes
                         // from users (or the auto rules) actually parking work,
@@ -5337,6 +5491,9 @@ export default function Sidebar() {
                             onSnooze={attemptSnooze}
                             onUnsnooze={attemptUnsnooze}
                             onUnpin={attemptUnpin}
+                            subagents={rowSubagents}
+                            onDismissSubagent={handleDismissSubagent}
+                            onOpenSubagent={handleOpenSubagent}
                             onAcknowledgeWoke={acknowledgeWoke}
                             onSetReminder={attemptSetReminder}
                             onDismissReminder={dismissReminder}

@@ -22,6 +22,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     messages: [],
     checkpoints: [],
     pullRequests: [],
+    dismissedTaskIds: [],
     activities: [],
     proposedPlans: [],
     createdAt: "2026-02-13T00:00:00.000Z",
