@@ -1,5 +1,35 @@
 # T4 Code
 
+> [!NOTE]
+>
+> ## This fork
+>
+> This is [IVainqueur](https://github.com/IVainqueur)'s personal fork of T4 Code (itself a fork of [pingdotgg/t3code](https://github.com/pingdotgg/t3code)), shared with friends. Not affiliated with the upstream project — file bugs specific to this fork [here](https://github.com/IVainqueur/t3code/issues), not upstream.
+>
+> **What's new vs. upstream:**
+>
+> - Multi-window desktop support — open threads in separate app windows, drag threads between windows, per-window indicators
+> - Thread reminders — get reminded about a thread after X minutes
+> - System notifications for agent activity (desktop + web)
+> - `last_activity` thread sort mode
+> - Find-in-conversation (Cmd+F) in the web chat view
+> - Rebrand from "T3 Code" to "T4 Code" throughout
+>
+> **Caveats / shortcomings:**
+>
+> - Installers are **unsigned** — macOS/Windows will show a one-time "unknown developer" warning (right-click → Open on Mac; "More info → Run anyway" on Windows)
+> - **No auto-update.** Releases don't wire up an update feed, so the in-app updater won't find new versions
+> - macOS builds are **Apple Silicon (arm64) only** — no Intel build, due to an upstream bug in the universal-build preflight check ([`lipo -version`](https://github.com/IVainqueur/t3code/blob/main/scripts/build-desktop-artifact.ts) isn't a real flag)
+> - Linux (`.AppImage`) and Windows (`.exe`) builds are CI-verified only — not manually smoke-tested on those OSes before each release
+> - Releases are cut manually and irregularly, not on any schedule
+>
+> **Installing / upgrading:**
+>
+> - Download the latest installer for your OS from [Releases](https://github.com/IVainqueur/t3code/releases)
+> - To upgrade, just download the newer release and reinstall — on macOS, drag the new app over the old one in Applications; on Windows/Linux, rerun the new installer/AppImage over the old install
+>
+> Everything else below describes upstream T4 Code.
+
 T4 Code is an "agent harness control surface". It enables control of the agents on your machine with a best-in-class mobile app ([iOS](https://apps.apple.com/us/app/t3-code-remote-claude-more/id6787819824), [Android](https://play.google.com/store/apps/details?id=com.t3tools.t3code)), [web app](https://app.t3.codes) and [Electron-based desktop app](https://t3.codes).
 
 Works with your subscriptions on Claude Code, Codex, Cursor, Grok Build, OpenCode, and Google Antigravity. If they're set up on your computer, T4 Code can control them.
