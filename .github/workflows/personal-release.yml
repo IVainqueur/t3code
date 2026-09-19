@@ -53,12 +53,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # arch: universal is skipped — build-desktop-artifact.ts probes for
+          # lipo with `lipo -version`, which lipo has no such flag for and
+          # always exits 1, so the universal-build preflight check never
+          # passes. arm64 covers virtually all Macs bought since 2020.
           - label: macOS
             runner: macos-14
             platform: mac
             target: dmg
-            arch: universal
-            rust_targets: "aarch64-apple-darwin x86_64-apple-darwin"
+            arch: arm64
+            rust_targets: "aarch64-apple-darwin"
           - label: Linux
             runner: ubuntu-latest
             platform: linux
